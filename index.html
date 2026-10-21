@@ -3461,278 +3461,287 @@ table.cov th:first-child,table.cov td:first-child,table.cov th:nth-child(2),tabl
   }, window.L = t;
 });
 </script>
-<script>!function(t) {
-  "function" == typeof define && define.amd ? define(t) : t();
-}(function() {
-  "use strict";
-  const t = L.extend({}, L.DomUtil);
-  L.extend(L.DomUtil, { setTransform: function(o2, e2, i2, n2, a2) {
-    var s2 = e2 || new L.Point(0, 0);
-    if (!n2) return e2 = s2._round(), t.setTransform.apply(this, arguments);
-    s2 = s2.rotateFrom(n2, a2), o2.style[L.DomUtil.TRANSFORM] = "translate3d(" + s2.x + "px," + s2.y + "px,0)" + (i2 ? " scale(" + i2 + ")" : "") + " rotate(" + n2 + "rad)";
-  }, setPosition: function(o2, e2, i2, n2, a2) {
-    if (!i2) return t.setPosition.apply(this, arguments);
-    o2._leaflet_pos = e2, L.Browser.any3d ? L.DomUtil.setTransform(o2, e2, a2, i2, n2) : (o2.style.left = e2.x + "px", o2.style.top = e2.y + "px");
-  }, DEG_TO_RAD: Math.PI / 180, RAD_TO_DEG: 180 / Math.PI }), L.Draggable.include({}), L.extend(L.Point.prototype, { rotate: function(t2) {
-    return this.rotateFrom(t2, new L.Point(0, 0));
-  }, rotateFrom: function(t2, o2) {
-    if (!t2) return this;
-    var e2 = Math.sin(t2), i2 = Math.cos(t2), n2 = o2.x, a2 = o2.y, s2 = this.x - n2, r2 = this.y - a2;
-    return new L.Point(s2 * i2 - r2 * e2 + n2, s2 * e2 + r2 * i2 + a2);
-  } });
-  const o = L.extend({}, L.DivOverlay.prototype);
-  L.DivOverlay.include({ getEvents: function() {
-    return L.extend(o.getEvents.apply(this, arguments), { rotate: this._updatePosition });
-  }, _updatePosition: function() {
-    if (this._map && (o._updatePosition.apply(this, arguments), this._map && this._map._rotate && this._zoomAnimated)) {
-      var t2 = this._getAnchor(), e2 = L.DomUtil.getPosition(this._container).subtract(t2);
-      L.DomUtil.setPosition(this._container, this._map.rotatedPointToMapPanePoint(e2).add(t2));
-    }
-  } });
-  const e = L.extend({}, L.Popup.prototype);
-  L.Popup.include({ _animateZoom: function(t2) {
-    if (e._animateZoom.apply(this, arguments), this._map && this._map._rotate) {
-      var o2 = this._getAnchor(), i2 = L.DomUtil.getPosition(this._container).subtract(o2);
-      L.DomUtil.setPosition(this._container, this._map.rotatedPointToMapPanePoint(i2).add(o2));
-    }
-  }, _adjustPan: function() {
-    if (!(!this.options.autoPan || this._map._panAnim && this._map._panAnim._inProgress)) if (this._autopanning) this._autopanning = false;
-    else {
-      var t2 = this._map, o2 = parseInt(L.DomUtil.getStyle(this._container, "marginBottom"), 10) || 0, e2 = this._container.offsetHeight + o2, i2 = this._containerWidth, n2 = new L.Point(this._containerLeft, -e2 - this._containerBottom);
-      n2._add(L.DomUtil.getPosition(this._container));
-      var a2 = n2._add(this._map._getMapPanePos()), s2 = L.point(this.options.autoPanPadding), r2 = L.point(this.options.autoPanPaddingTopLeft || s2), h2 = L.point(this.options.autoPanPaddingBottomRight || s2), _2 = t2.getSize(), d = 0, p = 0;
-      a2.x + i2 + h2.x > _2.x && (d = a2.x + i2 - _2.x + h2.x), a2.x - d - r2.x < 0 && (d = a2.x - r2.x), a2.y + e2 + h2.y > _2.y && (p = a2.y + e2 - _2.y + h2.y), a2.y - p - r2.y < 0 && (p = a2.y - r2.y), (d || p) && (this.options.keepInView && (this._autopanning = true), t2.fire("autopanstart").panBy([d, p]));
-    }
-  } });
-  const i = L.extend({}, L.Tooltip.prototype);
-  L.Tooltip.include({ _animateZoom: function(t2) {
-    if (!this._map._rotate) return i._animateZoom.apply(this, arguments);
-    var o2 = this._map._latLngToNewLayerPoint(this._latlng, t2.zoom, t2.center);
-    o2 = this._map.rotatedPointToMapPanePoint(o2), this._setPosition(o2);
-  }, _updatePosition: function() {
-    if (!this._map._rotate) return i._updatePosition.apply(this, arguments);
-    var t2 = this._map.latLngToLayerPoint(this._latlng);
-    t2 = this._map.rotatedPointToMapPanePoint(t2), this._setPosition(t2);
-  } }), L.extend({}, L.Icon.prototype), L.Icon.include({ _setIconStyles: function(t2, o2) {
-    var e2 = this.options, i2 = e2[o2 + "Size"];
-    "number" == typeof i2 && (i2 = [i2, i2]);
-    var n2 = L.point(i2), a2 = L.point("shadow" === o2 && e2.shadowAnchor || e2.iconAnchor || n2 && n2.divideBy(2, true));
-    t2.className = "leaflet-marker-" + o2 + " " + (e2.className || ""), a2 && (t2.style.marginLeft = -a2.x + "px", t2.style.marginTop = -a2.y + "px", t2.style[L.DomUtil.TRANSFORM + "Origin"] = a2.x + "px " + a2.y + "px 0px"), n2 && (t2.style.width = n2.x + "px", t2.style.height = n2.y + "px");
-  } });
-  const n = L.extend({}, L.Marker.prototype);
-  var a;
-  L.Marker.mergeOptions({ rotation: 0, rotateWithView: false, scale: void 0 });
-  var s = { _onDrag: function(t2) {
-    var o2 = this._marker, e2 = o2.options.rotation || o2.options.rotateWithView, i2 = o2._shadow, n2 = L.DomUtil.getPosition(o2._icon);
-    !e2 && i2 && L.DomUtil.setPosition(i2, n2), o2._map._rotate && (n2 = o2._map.mapPanePointToRotatedPoint(n2));
-    var a2 = o2._map.layerPointToLatLng(n2);
-    o2._latlng = a2, t2.latlng = a2, t2.oldLatLng = this._oldLatLng, e2 ? o2.setLatLng(a2) : o2.fire("move", t2), o2.fire("drag", t2);
-  }, _onDragEnd: function(t2) {
-    this._marker._map._rotate && this._marker.update(), a._onDragEnd.apply(this, arguments);
-  } };
-  L.Marker.include({ getEvents: function() {
-    return L.extend(n.getEvents.apply(this, arguments), { rotate: this.update });
-  }, _initInteraction: function() {
-    var t2 = n._initInteraction.apply(this, arguments);
-    return this.dragging && this.dragging.enabled() && this._map && this._map._rotate && (a = a || Object.getPrototypeOf(this.dragging), this.dragging.disable(), Object.assign(this.dragging, { _onDrag: s._onDrag.bind(this.dragging), _onDragEnd: s._onDragEnd.bind(this.dragging) }), this.dragging.enable()), t2;
-  }, _setPos: function(t2) {
-    this._map._rotate && (t2 = this._map.rotatedPointToMapPanePoint(t2));
-    var o2 = this.options.rotation || 0;
-    this.options.rotateWithView && (o2 += this._map._bearing), this._icon && L.DomUtil.setPosition(this._icon, t2, o2, t2, this.options.scale), this._shadow && L.DomUtil.setPosition(this._shadow, t2, o2, t2, this.options.scale), this._zIndex = t2.y + this.options.zIndexOffset, this._resetZIndex();
-  }, setRotation: function(t2) {
-    this.options.rotation = t2, this.update();
-  } });
-  const r = L.extend({}, L.GridLayer.prototype);
-  L.GridLayer.include({ getEvents: function() {
-    var t2 = r.getEvents.apply(this, arguments);
-    return this._map._rotate && !this.options.updateWhenIdle && (this._onRotate || (this._onRotate = L.Util.throttle(this._onMoveEnd, this.options.updateInterval, this)), t2.rotate = this._onRotate), t2;
-  }, _getTiledPixelBounds: function(t2) {
-    return this._map._rotate ? this._map._getNewPixelBounds(t2, this._tileZoom) : r._getTiledPixelBounds.apply(this, arguments);
-  } });
-  const h = L.extend({}, L.Renderer.prototype);
-  L.Renderer.include({ getEvents: function() {
-    return L.extend(h.getEvents.apply(this, arguments), { rotate: this._update });
-  }, onAdd: function() {
-    h.onAdd.apply(this, arguments), L.version <= "1.9.3" && this._container.classList.add("leaflet-zoom-animated");
-  }, _updateTransform: function(t2, o2) {
-    if (!this._map._rotate) return h._updateTransform.apply(this, arguments);
-    var e2 = this._map.getZoomScale(o2, this._zoom), i2 = this._map._latLngToNewLayerPoint(this._topLeft, o2, t2);
-    L.DomUtil.setTransform(this._container, i2, e2);
-  }, _update: function() {
-    if (!this._map._rotate) return h._update.apply(this, arguments);
-    this._bounds = this._map._getPaddedPixelBounds(this.options.padding), this._topLeft = this._map.layerPointToLatLng(this._bounds.min), this._center = this._map.getCenter(), this._zoom = this._map.getZoom();
-  } });
-  const _ = L.extend({}, L.Map.prototype);
-  L.Map.mergeOptions({ rotate: false, bearing: 0 }), L.Map.include({ initialize: function(t2, o2) {
-    o2.rotate && (this._rotate = true, this._bearing = 0), _.initialize.apply(this, arguments), this.options.rotate && this.setBearing(this.options.bearing);
-  }, containerPointToLayerPoint: function(t2) {
-    return this._rotate ? L.point(t2).subtract(this._getMapPanePos()).rotateFrom(-this._bearing, this._getRotatePanePos()).subtract(this._getRotatePanePos()) : _.containerPointToLayerPoint.apply(this, arguments);
-  }, layerPointToContainerPoint: function(t2) {
-    return this._rotate ? L.point(t2).add(this._getRotatePanePos()).rotateFrom(this._bearing, this._getRotatePanePos()).add(this._getMapPanePos()) : _.layerPointToContainerPoint.apply(this, arguments);
-  }, rotatedPointToMapPanePoint: function(t2) {
-    return L.point(t2).rotate(this._bearing)._add(this._getRotatePanePos());
-  }, mapPanePointToRotatedPoint: function(t2) {
-    return L.point(t2)._subtract(this._getRotatePanePos()).rotate(-this._bearing);
-  }, mapBoundsToContainerBounds: function(t2) {
-    if (!this._rotate && _.mapBoundsToContainerBounds) return _.mapBoundsToContainerBounds.apply(this, arguments);
-    const o2 = this.getPixelOrigin(), e2 = this.layerPointToContainerPoint(this.project(t2.getNorthWest())._subtract(o2)), i2 = this.layerPointToContainerPoint(this.project(t2.getNorthEast())._subtract(o2)), n2 = this.layerPointToContainerPoint(this.project(t2.getSouthWest())._subtract(o2)), a2 = this.layerPointToContainerPoint(this.project(t2.getSouthEast())._subtract(o2));
-    return L.bounds([L.point(Math.min(e2.x, i2.x, a2.x, n2.x), Math.min(e2.y, i2.y, a2.y, n2.y)), L.point(Math.max(e2.x, i2.x, a2.x, n2.x), Math.max(e2.y, i2.y, a2.y, n2.y))]);
-  }, getBounds: function() {
-    if (!this._rotate) return _.getBounds.apply(this, arguments);
-    var t2 = this.getSize();
-    return new L.LatLngBounds([this.containerPointToLatLng([0, 0]), this.containerPointToLatLng([t2.x, 0]), this.containerPointToLatLng([t2.x, t2.y]), this.containerPointToLatLng([0, t2.y])]);
-  }, setBearing: function(t2) {
-    if (L.Browser.any3d && this._rotate) {
-      var o2 = L.Util.wrapNum(t2, [0, 360]) * L.DomUtil.DEG_TO_RAD, e2 = this._getPixelCenter(), i2 = this._getRotatePanePos().rotateFrom(-this._bearing, e2), n2 = i2.rotateFrom(o2, e2);
-      L.DomUtil.setPosition(this._rotatePane, i2, o2, e2), this._pivot = e2, this._bearing = o2, this._rotatePanePos = n2, this.fire("rotate");
-    }
-  }, getBearing: function() {
-    return this._bearing * L.DomUtil.RAD_TO_DEG;
-  }, _initPanes: function() {
-    var t2 = this._panes = {};
-    this._paneRenderers = {}, this._mapPane = this.createPane("mapPane", this._container), L.DomUtil.setPosition(this._mapPane, new L.Point(0, 0)), this._rotate ? (this._rotatePane = this.createPane("rotatePane", this._mapPane), this._norotatePane = this.createPane("norotatePane", this._mapPane), this.createPane("tilePane", this._rotatePane), this.createPane("overlayPane", this._rotatePane), this.createPane("shadowPane", this._norotatePane), this.createPane("markerPane", this._norotatePane), this.createPane("tooltipPane", this._norotatePane), this.createPane("popupPane", this._norotatePane)) : (this.createPane("tilePane"), this.createPane("overlayPane"), this.createPane("shadowPane"), this.createPane("markerPane"), this.createPane("tooltipPane"), this.createPane("popupPane")), this.options.markerZoomAnimation || (L.DomUtil.addClass(t2.markerPane, "leaflet-zoom-hide"), L.DomUtil.addClass(t2.shadowPane, "leaflet-zoom-hide"));
-  }, panInside(t2, o2) {
-    if (!this._rotate || Math.abs(this._bearing).toFixed(1) < 0.1) return _.panInside.apply(this, arguments);
-    o2 = o2 || {};
-    const e2 = L.point(o2.paddingTopLeft || o2.padding || [0, 0]), i2 = L.point(o2.paddingBottomRight || o2.padding || [0, 0]), n2 = this._container.getBoundingClientRect(), a2 = this.latLngToContainerPoint(t2), s2 = L.bounds([L.point(n2), L.point(n2).add(this.getSize())]), r2 = s2.getCenter(), h2 = L.bounds([s2.min.add(e2), s2.max.subtract(i2)]), d = h2.getSize();
-    if (!h2.contains(a2)) {
-      this._enforcingBounds = true;
-      const t3 = a2.subtract(h2.getCenter()), e3 = h2.extend(a2).getSize().subtract(d);
-      r2.x += t3.x < 0 ? -e3.x : e3.x, r2.y += t3.y < 0 ? -e3.y : e3.y, this.panTo(this.containerPointToLatLng(r2), o2), this._enforcingBounds = false;
-    }
-    return this;
-  }, getBoundsZoom(t2, o2, e2) {
-    if (!this._rotate || Math.abs(this._bearing).toFixed(1) < 0.1) return _.getBoundsZoom.apply(this, arguments);
-    t2 = L.latLngBounds(t2), e2 = L.point(e2 || [0, 0]);
-    let i2 = this.getZoom() || 0;
-    const n2 = this.getMinZoom(), a2 = this.getMaxZoom(), s2 = this.getSize().subtract(e2), r2 = this.mapBoundsToContainerBounds(t2).getSize(), h2 = this.options.zoomSnap, d = s2.x / r2.x, p = s2.y / r2.y, l = o2 ? Math.max(d, p) : Math.min(d, p);
-    return i2 = this.getScaleZoom(l, i2), h2 && (i2 = Math.round(i2 / (h2 / 100)) * (h2 / 100), i2 = o2 ? Math.ceil(i2 / h2) * h2 : Math.floor(i2 / h2) * h2), Math.max(n2, Math.min(a2, i2));
-  }, _getCenterOffset: function(t2) {
-    var o2 = _._getCenterOffset.apply(this, arguments);
-    return this._rotate && (o2 = o2.rotate(this._bearing)), o2;
-  }, _getRotatePanePos: function() {
-    return this._rotatePanePos || new L.Point(0, 0);
-  }, _getNewPixelOrigin: function(t2, o2) {
-    if (!this._rotate) return _._getNewPixelOrigin.apply(this, arguments);
-    var e2 = this.getSize()._divideBy(2);
-    return this.project(t2, o2).rotate(this._bearing)._subtract(e2)._add(this._getMapPanePos())._add(this._getRotatePanePos()).rotate(-this._bearing)._round();
-  }, _getNewPixelBounds: function(t2, o2) {
-    if (t2 = t2 || this.getCenter(), o2 = o2 || this.getZoom(), !this._rotate && _._getNewPixelBounds) return _._getNewPixelBounds.apply(this, arguments);
-    var e2 = this._animatingZoom ? Math.max(this._animateToZoom, this.getZoom()) : this.getZoom(), i2 = this.getZoomScale(e2, o2), n2 = this.project(t2, o2).floor(), a2 = this.getSize(), s2 = new L.Bounds([this.containerPointToLayerPoint([0, 0]).floor(), this.containerPointToLayerPoint([a2.x, 0]).floor(), this.containerPointToLayerPoint([0, a2.y]).floor(), this.containerPointToLayerPoint([a2.x, a2.y]).floor()]).getSize().divideBy(2 * i2);
-    return new L.Bounds(n2.subtract(s2), n2.add(s2));
-  }, _getPixelCenter: function() {
-    return !this._rotate && _._getPixelCenter ? _._getPixelCenter.apply(this, arguments) : this.getSize()._divideBy(2)._subtract(this._getMapPanePos());
-  }, _getPaddedPixelBounds: function(t2) {
-    if (!this._rotate && _._getPaddedPixelBounds) return _._getPaddedPixelBounds.apply(this, arguments);
-    var o2 = t2, e2 = this.getSize(), i2 = e2.multiplyBy(-o2), n2 = e2.multiplyBy(1 + o2);
-    return new L.Bounds([this.containerPointToLayerPoint([i2.x, i2.y]).floor(), this.containerPointToLayerPoint([i2.x, n2.y]).floor(), this.containerPointToLayerPoint([n2.x, i2.y]).floor(), this.containerPointToLayerPoint([n2.x, n2.y]).floor()]);
-  }, _handleGeolocationResponse: function(t2) {
-    if (this._container._leaflet_id) {
-      var o2 = t2.coords.latitude, e2 = t2.coords.longitude, i2 = t2.coords.heading, n2 = new L.LatLng(o2, e2), a2 = n2.toBounds(t2.coords.accuracy), s2 = this._locateOptions;
-      if (s2.setView) {
-        var r2 = this.getBoundsZoom(a2);
-        this.setView(n2, s2.maxZoom ? Math.min(r2, s2.maxZoom) : r2);
-      }
-      var h2 = { latlng: n2, bounds: a2, timestamp: t2.timestamp, heading: i2 };
-      for (var _2 in t2.coords) "number" == typeof t2.coords[_2] && (h2[_2] = t2.coords[_2]);
-      this.fire("locationfound", h2);
-    }
-  } }), L.Map.CompassBearing = L.Handler.extend({ initialize: function(t2) {
-    this._map = t2, "ondeviceorientationabsolute" in window ? this.__deviceOrientationEvent = "deviceorientationabsolute" : "ondeviceorientation" in window && (this.__deviceOrientationEvent = "deviceorientation"), this._throttled = L.Util.throttle(this._onDeviceOrientation, 100, this);
-  }, addHooks: function() {
-    this._map._rotate && this.__deviceOrientationEvent ? L.DomEvent.on(window, this.__deviceOrientationEvent, this._throttled, this) : this.disable();
-  }, removeHooks: function() {
-    this._map._rotate && this.__deviceOrientationEvent && L.DomEvent.off(window, this.__deviceOrientationEvent, this._throttled, this);
-  }, _onDeviceOrientation: function(t2) {
-    var o2 = t2.webkitCompassHeading || t2.alpha, e2 = 0;
-    !t2.absolute && t2.webkitCompassHeading && (o2 = 360 - o2), t2.absolute || void 0 === window.orientation || (e2 = window.orientation), this._map.setBearing(o2 - e2);
-  } }), L.Map.addInitHook("addHandler", "compassBearing", L.Map.CompassBearing), L.Map.mergeOptions({ trackContainerMutation: false }), L.Map.ContainerMutation = L.Handler.extend({ addHooks: function() {
-    this._observer || (this._observer = new MutationObserver(L.Util.bind(this._map.invalidateSize, this._map))), this._observer.observe(this._map.getContainer(), { childList: false, attributes: true, characterData: false, subtree: false, attributeFilter: ["style"] });
-  }, removeHooks: function() {
-    this._observer.disconnect();
-  } }), L.Map.addInitHook("addHandler", "trackContainerMutation", L.Map.ContainerMutation), L.Map.mergeOptions({ bounceAtZoomLimits: true }), L.Map.TouchGestures = L.Handler.extend({ initialize: function(t2) {
-    this._map = t2, this.rotate = !!this._map.options.touchRotate, this.zoom = !!this._map.options.touchZoom;
-  }, addHooks: function() {
-    L.DomEvent.on(this._map._container, "touchstart", this._onTouchStart, this);
-  }, removeHooks: function() {
-    L.DomEvent.off(this._map._container, "touchstart", this._onTouchStart, this);
-  }, _onTouchStart: function(t2) {
-    var o2 = this._map;
-    if (t2.touches && 2 === t2.touches.length && !o2._animatingZoom && !this._zooming && !this._rotating) {
-      var e2 = o2.mouseEventToContainerPoint(t2.touches[0]), i2 = o2.mouseEventToContainerPoint(t2.touches[1]), n2 = e2.subtract(i2);
-      this._centerPoint = o2.getSize()._divideBy(2), this._startLatLng = o2.containerPointToLatLng(this._centerPoint), this.zoom ? ("center" !== o2.options.touchZoom && (this._pinchStartLatLng = o2.containerPointToLatLng(e2.add(i2)._divideBy(2))), this._startDist = e2.distanceTo(i2), this._startZoom = o2.getZoom(), this._zooming = true) : this._zooming = false, this.rotate ? (this._startTheta = Math.atan(n2.x / n2.y), this._startBearing = o2.getBearing(), n2.y < 0 && (this._startBearing += 180), this._rotating = true) : this._rotating = false, this._moved = false, o2._stop(), L.DomEvent.on(document, "touchmove", this._onTouchMove, this).on(document, "touchend touchcancel", this._onTouchEnd, this), L.DomEvent.preventDefault(t2);
-    }
-  }, _onTouchMove: function(t2) {
-    if (t2.touches && 2 === t2.touches.length && (this._zooming || this._rotating)) {
-      var o2, e2 = this._map, i2 = e2.mouseEventToContainerPoint(t2.touches[0]), n2 = e2.mouseEventToContainerPoint(t2.touches[1]), a2 = i2.subtract(n2), s2 = i2.distanceTo(n2) / this._startDist;
-      if (this._rotating) {
-        var r2 = (Math.atan(a2.x / a2.y) - this._startTheta) * L.DomUtil.RAD_TO_DEG;
-        a2.y < 0 && (r2 += 180), r2 && e2.setBearing(this._startBearing - r2);
-      }
-      if (this._zooming) if (this._zoom = e2.getScaleZoom(s2, this._startZoom), !e2.options.bounceAtZoomLimits && (this._zoom < e2.getMinZoom() && s2 < 1 || this._zoom > e2.getMaxZoom() && s2 > 1) && (this._zoom = e2._limitZoom(this._zoom)), "center" === e2.options.touchZoom) {
-        if (this._center = this._startLatLng, 1 === s2) return;
-      } else {
-        if (o2 = i2._add(n2)._divideBy(2)._subtract(this._centerPoint), 1 === s2 && 0 === o2.x && 0 === o2.y) return;
-        var h2 = -e2.getBearing() * L.DomUtil.DEG_TO_RAD;
-        this._center = e2.unproject(e2.project(this._pinchStartLatLng).subtract(o2.rotate(h2)));
-      }
-      this._moved || (e2._moveStart(true, false), this._moved = true), L.Util.cancelAnimFrame(this._animRequest);
-      var _2 = e2._move.bind(e2, this._center, this._zoom, { pinch: true, round: false }, void 0);
-      this._animRequest = L.Util.requestAnimFrame(_2, this, true), L.DomEvent.preventDefault(t2);
-    }
-  }, _onTouchEnd: function() {
-    this._moved && (this._zooming || this._rotating) ? (this._zooming = false, this._rotating = false, L.Util.cancelAnimFrame(this._animRequest), L.DomEvent.off(document, "touchmove", this._onTouchMove, this).off(document, "touchend touchcancel", this._onTouchEnd, this), this.zoom && (this._map.options.zoomAnimation ? this._map._animateZoom(this._center, this._map._limitZoom(this._zoom), true, this._map.options.zoomSnap) : this._map._resetView(this._center, this._map._limitZoom(this._zoom)))) : this._zooming = false;
-  } }), L.Map.addInitHook("addHandler", "touchGestures", L.Map.TouchGestures), L.Map.mergeOptions({ touchRotate: false }), L.Map.TouchRotate = L.Handler.extend({ addHooks: function() {
-    this._map.touchGestures.enable(), this._map.touchGestures.rotate = true;
-  }, removeHooks: function() {
-    this._map.touchGestures.rotate = false;
-  } }), L.Map.addInitHook("addHandler", "touchRotate", L.Map.TouchRotate), L.Map.mergeOptions({ shiftKeyRotate: true }), L.Map.ShiftKeyRotate = L.Handler.extend({ addHooks: function() {
-    L.DomEvent.on(this._map._container, "wheel", this._handleShiftScroll, this), this._map.shiftKeyRotate.rotate = true;
-  }, removeHooks: function() {
-    L.DomEvent.off(this._map._container, "wheel", this._handleShiftScroll, this), this._map.shiftKeyRotate.rotate = false;
-  }, _handleShiftScroll: function(t2) {
-    t2.shiftKey ? (t2.preventDefault(), this._map.scrollWheelZoom.disable(), this._map.setBearing(this._map._bearing * L.DomUtil.RAD_TO_DEG + 5 * Math.sign(t2.deltaY))) : this._map.scrollWheelZoom.enable();
-  } }), L.Map.addInitHook("addHandler", "shiftKeyRotate", L.Map.ShiftKeyRotate), L.Map.addInitHook(function() {
-    this.scrollWheelZoom.enabled() && this.shiftKeyRotate.enabled() && (this.scrollWheelZoom.disable(), this.scrollWheelZoom.enable());
-  }), L.Map.mergeOptions({ touchZoom: L.Browser.touch, bounceAtZoomLimits: false }), L.Map.TouchZoom = L.Handler.extend({ addHooks: function() {
-    L.DomUtil.addClass(this._map._container, "leaflet-touch-zoom"), this._map.touchGestures.enable(), this._map.touchGestures.zoom = true;
-  }, removeHooks: function() {
-    L.DomUtil.removeClass(this._map._container, "leaflet-touch-zoom"), this._map.touchGestures.zoom = false;
-  } }), L.Map.addInitHook("addHandler", "touchZoom", L.Map.TouchZoom), L.Control.Rotate = L.Control.extend({ options: { position: "topleft", closeOnZeroBearing: true }, onAdd: function(t2) {
-    var o2 = this._container = L.DomUtil.create("div", "leaflet-control-rotate leaflet-bar"), e2 = this._arrow = L.DomUtil.create("span", "leaflet-control-rotate-arrow");
-    e2.style.backgroundImage = `url("data:image/svg+xml;charset=utf-8,%3Csvg width='29' height='29' viewBox='0 0 29 29' xmlns='http://www.w3.org/2000/svg' fill='%23333'%3E%3Cpath d='M10.5 14l4-8 4 8h-8z'/%3E%3Cpath d='M10.5 16l4 8 4-8h-8z' fill='%23ccc'/%3E%3C/svg%3E")`, e2.style.cursor = "grab", e2.style.display = "block", e2.style.width = "100%", e2.style.height = "100%", e2.style.backgroundRepeat = "no-repeat", e2.style.backgroundPosition = "50%";
-    var i2 = this._link = L.DomUtil.create("a", "leaflet-control-rotate-toggle", o2);
-    return i2.appendChild(e2), i2.href = "#", i2.title = "Rotate map", L.DomEvent.on(i2, "dblclick", L.DomEvent.stopPropagation).on(i2, "mousedown", this._handleMouseDown, this).on(i2, "click", L.DomEvent.stop).on(i2, "click", this._cycleState, this).on(i2, "click", this._refocusOnMap, this), L.Browser.any3d || L.DomUtil.addClass(i2, "leaflet-disabled"), this._restyle(), t2.on("rotate", this._restyle, this), this._follow = false, this._canFollow = false, this.options.closeOnZeroBearing && 0 === t2.getBearing() && (o2.style.display = "none"), o2;
-  }, onRemove: function(t2) {
-    t2.off("rotate", this._restyle, this);
-  }, _handleMouseDown: function(t2) {
-    L.DomEvent.stop(t2), this.dragging = true, this.dragstartX = t2.pageX, this.dragstartY = t2.pageY, L.DomEvent.on(document, "mousemove", this._handleMouseDrag, this).on(document, "mouseup", this._handleMouseUp, this);
-  }, _handleMouseUp: function(t2) {
-    L.DomEvent.stop(t2), this.dragging = false, L.DomEvent.off(document, "mousemove", this._handleMouseDrag, this).off(document, "mouseup", this._handleMouseUp, this);
-  }, _handleMouseDrag: function(t2) {
-    if (this.dragging) {
-      var o2 = t2.clientX - this.dragstartX;
-      this._map.setBearing(o2);
-    }
-  }, _cycleState: function(t2) {
-    if (this._map) {
-      var o2 = this._map;
-      o2.touchRotate.enabled() || o2.compassBearing.enabled() ? o2.compassBearing.enabled() ? (o2.compassBearing.disable(), o2.setBearing(0), this.options.closeOnZeroBearing && o2.touchRotate.enable()) : (o2.touchRotate.disable(), o2.compassBearing.enable()) : o2.touchRotate.enable(), this._restyle();
-    }
-  }, _restyle: function() {
-    if (this._map.options.rotate) {
-      var t2 = this._map, o2 = t2.getBearing();
-      this._arrow.style.transform = "rotate(" + o2 + "deg)", o2 && this.options.closeOnZeroBearing && (this._container.style.display = "block"), t2.compassBearing.enabled() ? this._link.style.backgroundColor = "orange" : t2.touchRotate.enabled() ? this._link.style.backgroundColor = null : (this._link.style.backgroundColor = "grey", 0 === o2 && this.options.closeOnZeroBearing && (this._container.style.display = "none"));
-    } else L.DomUtil.addClass(this._link, "leaflet-disabled");
-  } }), L.control.rotate = function(t2) {
-    return new L.Control.Rotate(t2);
-  }, L.Map.mergeOptions({ rotateControl: true }), L.Map.addInitHook(function() {
-    if (this.options.rotateControl) {
-      var t2 = "object" == typeof this.options.rotateControl ? this.options.rotateControl : {};
-      this.rotateControl = L.control.rotate(t2), this.addControl(this.rotateControl);
-    }
-  });
-});
+<script>var RP_SAFE = /[?&]safe/.test(location.search), RP_ROTATE = false;
+try {
+  RP_ROTATE = !RP_SAFE && JSON.parse(localStorage.getItem("rp_settings") || "{}").headingUp === true;
+} catch (e) {
+}
+if (RP_ROTATE) {
+  (function() {
+    !function(t) {
+      "function" == typeof define && define.amd ? define(t) : t();
+    }(function() {
+      "use strict";
+      const t = L.extend({}, L.DomUtil);
+      L.extend(L.DomUtil, { setTransform: function(o2, e2, i2, n2, a2) {
+        var s2 = e2 || new L.Point(0, 0);
+        if (!n2) return e2 = s2._round(), t.setTransform.apply(this, arguments);
+        s2 = s2.rotateFrom(n2, a2), o2.style[L.DomUtil.TRANSFORM] = "translate3d(" + s2.x + "px," + s2.y + "px,0)" + (i2 ? " scale(" + i2 + ")" : "") + " rotate(" + n2 + "rad)";
+      }, setPosition: function(o2, e2, i2, n2, a2) {
+        if (!i2) return t.setPosition.apply(this, arguments);
+        o2._leaflet_pos = e2, L.Browser.any3d ? L.DomUtil.setTransform(o2, e2, a2, i2, n2) : (o2.style.left = e2.x + "px", o2.style.top = e2.y + "px");
+      }, DEG_TO_RAD: Math.PI / 180, RAD_TO_DEG: 180 / Math.PI }), L.Draggable.include({}), L.extend(L.Point.prototype, { rotate: function(t2) {
+        return this.rotateFrom(t2, new L.Point(0, 0));
+      }, rotateFrom: function(t2, o2) {
+        if (!t2) return this;
+        var e2 = Math.sin(t2), i2 = Math.cos(t2), n2 = o2.x, a2 = o2.y, s2 = this.x - n2, r2 = this.y - a2;
+        return new L.Point(s2 * i2 - r2 * e2 + n2, s2 * e2 + r2 * i2 + a2);
+      } });
+      const o = L.extend({}, L.DivOverlay.prototype);
+      L.DivOverlay.include({ getEvents: function() {
+        return L.extend(o.getEvents.apply(this, arguments), { rotate: this._updatePosition });
+      }, _updatePosition: function() {
+        if (this._map && (o._updatePosition.apply(this, arguments), this._map && this._map._rotate && this._zoomAnimated)) {
+          var t2 = this._getAnchor(), e2 = L.DomUtil.getPosition(this._container).subtract(t2);
+          L.DomUtil.setPosition(this._container, this._map.rotatedPointToMapPanePoint(e2).add(t2));
+        }
+      } });
+      const e = L.extend({}, L.Popup.prototype);
+      L.Popup.include({ _animateZoom: function(t2) {
+        if (e._animateZoom.apply(this, arguments), this._map && this._map._rotate) {
+          var o2 = this._getAnchor(), i2 = L.DomUtil.getPosition(this._container).subtract(o2);
+          L.DomUtil.setPosition(this._container, this._map.rotatedPointToMapPanePoint(i2).add(o2));
+        }
+      }, _adjustPan: function() {
+        if (!(!this.options.autoPan || this._map._panAnim && this._map._panAnim._inProgress)) if (this._autopanning) this._autopanning = false;
+        else {
+          var t2 = this._map, o2 = parseInt(L.DomUtil.getStyle(this._container, "marginBottom"), 10) || 0, e2 = this._container.offsetHeight + o2, i2 = this._containerWidth, n2 = new L.Point(this._containerLeft, -e2 - this._containerBottom);
+          n2._add(L.DomUtil.getPosition(this._container));
+          var a2 = n2._add(this._map._getMapPanePos()), s2 = L.point(this.options.autoPanPadding), r2 = L.point(this.options.autoPanPaddingTopLeft || s2), h2 = L.point(this.options.autoPanPaddingBottomRight || s2), _2 = t2.getSize(), d = 0, p = 0;
+          a2.x + i2 + h2.x > _2.x && (d = a2.x + i2 - _2.x + h2.x), a2.x - d - r2.x < 0 && (d = a2.x - r2.x), a2.y + e2 + h2.y > _2.y && (p = a2.y + e2 - _2.y + h2.y), a2.y - p - r2.y < 0 && (p = a2.y - r2.y), (d || p) && (this.options.keepInView && (this._autopanning = true), t2.fire("autopanstart").panBy([d, p]));
+        }
+      } });
+      const i = L.extend({}, L.Tooltip.prototype);
+      L.Tooltip.include({ _animateZoom: function(t2) {
+        if (!this._map._rotate) return i._animateZoom.apply(this, arguments);
+        var o2 = this._map._latLngToNewLayerPoint(this._latlng, t2.zoom, t2.center);
+        o2 = this._map.rotatedPointToMapPanePoint(o2), this._setPosition(o2);
+      }, _updatePosition: function() {
+        if (!this._map._rotate) return i._updatePosition.apply(this, arguments);
+        var t2 = this._map.latLngToLayerPoint(this._latlng);
+        t2 = this._map.rotatedPointToMapPanePoint(t2), this._setPosition(t2);
+      } }), L.extend({}, L.Icon.prototype), L.Icon.include({ _setIconStyles: function(t2, o2) {
+        var e2 = this.options, i2 = e2[o2 + "Size"];
+        "number" == typeof i2 && (i2 = [i2, i2]);
+        var n2 = L.point(i2), a2 = L.point("shadow" === o2 && e2.shadowAnchor || e2.iconAnchor || n2 && n2.divideBy(2, true));
+        t2.className = "leaflet-marker-" + o2 + " " + (e2.className || ""), a2 && (t2.style.marginLeft = -a2.x + "px", t2.style.marginTop = -a2.y + "px", t2.style[L.DomUtil.TRANSFORM + "Origin"] = a2.x + "px " + a2.y + "px 0px"), n2 && (t2.style.width = n2.x + "px", t2.style.height = n2.y + "px");
+      } });
+      const n = L.extend({}, L.Marker.prototype);
+      var a;
+      L.Marker.mergeOptions({ rotation: 0, rotateWithView: false, scale: void 0 });
+      var s = { _onDrag: function(t2) {
+        var o2 = this._marker, e2 = o2.options.rotation || o2.options.rotateWithView, i2 = o2._shadow, n2 = L.DomUtil.getPosition(o2._icon);
+        !e2 && i2 && L.DomUtil.setPosition(i2, n2), o2._map._rotate && (n2 = o2._map.mapPanePointToRotatedPoint(n2));
+        var a2 = o2._map.layerPointToLatLng(n2);
+        o2._latlng = a2, t2.latlng = a2, t2.oldLatLng = this._oldLatLng, e2 ? o2.setLatLng(a2) : o2.fire("move", t2), o2.fire("drag", t2);
+      }, _onDragEnd: function(t2) {
+        this._marker._map._rotate && this._marker.update(), a._onDragEnd.apply(this, arguments);
+      } };
+      L.Marker.include({ getEvents: function() {
+        return L.extend(n.getEvents.apply(this, arguments), { rotate: this.update });
+      }, _initInteraction: function() {
+        var t2 = n._initInteraction.apply(this, arguments);
+        return this.dragging && this.dragging.enabled() && this._map && this._map._rotate && (a = a || Object.getPrototypeOf(this.dragging), this.dragging.disable(), Object.assign(this.dragging, { _onDrag: s._onDrag.bind(this.dragging), _onDragEnd: s._onDragEnd.bind(this.dragging) }), this.dragging.enable()), t2;
+      }, _setPos: function(t2) {
+        this._map._rotate && (t2 = this._map.rotatedPointToMapPanePoint(t2));
+        var o2 = this.options.rotation || 0;
+        this.options.rotateWithView && (o2 += this._map._bearing), this._icon && L.DomUtil.setPosition(this._icon, t2, o2, t2, this.options.scale), this._shadow && L.DomUtil.setPosition(this._shadow, t2, o2, t2, this.options.scale), this._zIndex = t2.y + this.options.zIndexOffset, this._resetZIndex();
+      }, setRotation: function(t2) {
+        this.options.rotation = t2, this.update();
+      } });
+      const r = L.extend({}, L.GridLayer.prototype);
+      L.GridLayer.include({ getEvents: function() {
+        var t2 = r.getEvents.apply(this, arguments);
+        return this._map._rotate && !this.options.updateWhenIdle && (this._onRotate || (this._onRotate = L.Util.throttle(this._onMoveEnd, this.options.updateInterval, this)), t2.rotate = this._onRotate), t2;
+      }, _getTiledPixelBounds: function(t2) {
+        return this._map._rotate ? this._map._getNewPixelBounds(t2, this._tileZoom) : r._getTiledPixelBounds.apply(this, arguments);
+      } });
+      const h = L.extend({}, L.Renderer.prototype);
+      L.Renderer.include({ getEvents: function() {
+        return L.extend(h.getEvents.apply(this, arguments), { rotate: this._update });
+      }, onAdd: function() {
+        h.onAdd.apply(this, arguments), L.version <= "1.9.3" && this._container.classList.add("leaflet-zoom-animated");
+      }, _updateTransform: function(t2, o2) {
+        if (!this._map._rotate) return h._updateTransform.apply(this, arguments);
+        var e2 = this._map.getZoomScale(o2, this._zoom), i2 = this._map._latLngToNewLayerPoint(this._topLeft, o2, t2);
+        L.DomUtil.setTransform(this._container, i2, e2);
+      }, _update: function() {
+        if (!this._map._rotate) return h._update.apply(this, arguments);
+        this._bounds = this._map._getPaddedPixelBounds(this.options.padding), this._topLeft = this._map.layerPointToLatLng(this._bounds.min), this._center = this._map.getCenter(), this._zoom = this._map.getZoom();
+      } });
+      const _ = L.extend({}, L.Map.prototype);
+      L.Map.mergeOptions({ rotate: false, bearing: 0 }), L.Map.include({ initialize: function(t2, o2) {
+        o2.rotate && (this._rotate = true, this._bearing = 0), _.initialize.apply(this, arguments), this.options.rotate && this.setBearing(this.options.bearing);
+      }, containerPointToLayerPoint: function(t2) {
+        return this._rotate ? L.point(t2).subtract(this._getMapPanePos()).rotateFrom(-this._bearing, this._getRotatePanePos()).subtract(this._getRotatePanePos()) : _.containerPointToLayerPoint.apply(this, arguments);
+      }, layerPointToContainerPoint: function(t2) {
+        return this._rotate ? L.point(t2).add(this._getRotatePanePos()).rotateFrom(this._bearing, this._getRotatePanePos()).add(this._getMapPanePos()) : _.layerPointToContainerPoint.apply(this, arguments);
+      }, rotatedPointToMapPanePoint: function(t2) {
+        return L.point(t2).rotate(this._bearing)._add(this._getRotatePanePos());
+      }, mapPanePointToRotatedPoint: function(t2) {
+        return L.point(t2)._subtract(this._getRotatePanePos()).rotate(-this._bearing);
+      }, mapBoundsToContainerBounds: function(t2) {
+        if (!this._rotate && _.mapBoundsToContainerBounds) return _.mapBoundsToContainerBounds.apply(this, arguments);
+        const o2 = this.getPixelOrigin(), e2 = this.layerPointToContainerPoint(this.project(t2.getNorthWest())._subtract(o2)), i2 = this.layerPointToContainerPoint(this.project(t2.getNorthEast())._subtract(o2)), n2 = this.layerPointToContainerPoint(this.project(t2.getSouthWest())._subtract(o2)), a2 = this.layerPointToContainerPoint(this.project(t2.getSouthEast())._subtract(o2));
+        return L.bounds([L.point(Math.min(e2.x, i2.x, a2.x, n2.x), Math.min(e2.y, i2.y, a2.y, n2.y)), L.point(Math.max(e2.x, i2.x, a2.x, n2.x), Math.max(e2.y, i2.y, a2.y, n2.y))]);
+      }, getBounds: function() {
+        if (!this._rotate) return _.getBounds.apply(this, arguments);
+        var t2 = this.getSize();
+        return new L.LatLngBounds([this.containerPointToLatLng([0, 0]), this.containerPointToLatLng([t2.x, 0]), this.containerPointToLatLng([t2.x, t2.y]), this.containerPointToLatLng([0, t2.y])]);
+      }, setBearing: function(t2) {
+        if (L.Browser.any3d && this._rotate) {
+          var o2 = L.Util.wrapNum(t2, [0, 360]) * L.DomUtil.DEG_TO_RAD, e2 = this._getPixelCenter(), i2 = this._getRotatePanePos().rotateFrom(-this._bearing, e2), n2 = i2.rotateFrom(o2, e2);
+          L.DomUtil.setPosition(this._rotatePane, i2, o2, e2), this._pivot = e2, this._bearing = o2, this._rotatePanePos = n2, this.fire("rotate");
+        }
+      }, getBearing: function() {
+        return this._bearing * L.DomUtil.RAD_TO_DEG;
+      }, _initPanes: function() {
+        var t2 = this._panes = {};
+        this._paneRenderers = {}, this._mapPane = this.createPane("mapPane", this._container), L.DomUtil.setPosition(this._mapPane, new L.Point(0, 0)), this._rotate ? (this._rotatePane = this.createPane("rotatePane", this._mapPane), this._norotatePane = this.createPane("norotatePane", this._mapPane), this.createPane("tilePane", this._rotatePane), this.createPane("overlayPane", this._rotatePane), this.createPane("shadowPane", this._norotatePane), this.createPane("markerPane", this._norotatePane), this.createPane("tooltipPane", this._norotatePane), this.createPane("popupPane", this._norotatePane)) : (this.createPane("tilePane"), this.createPane("overlayPane"), this.createPane("shadowPane"), this.createPane("markerPane"), this.createPane("tooltipPane"), this.createPane("popupPane")), this.options.markerZoomAnimation || (L.DomUtil.addClass(t2.markerPane, "leaflet-zoom-hide"), L.DomUtil.addClass(t2.shadowPane, "leaflet-zoom-hide"));
+      }, panInside(t2, o2) {
+        if (!this._rotate || Math.abs(this._bearing).toFixed(1) < 0.1) return _.panInside.apply(this, arguments);
+        o2 = o2 || {};
+        const e2 = L.point(o2.paddingTopLeft || o2.padding || [0, 0]), i2 = L.point(o2.paddingBottomRight || o2.padding || [0, 0]), n2 = this._container.getBoundingClientRect(), a2 = this.latLngToContainerPoint(t2), s2 = L.bounds([L.point(n2), L.point(n2).add(this.getSize())]), r2 = s2.getCenter(), h2 = L.bounds([s2.min.add(e2), s2.max.subtract(i2)]), d = h2.getSize();
+        if (!h2.contains(a2)) {
+          this._enforcingBounds = true;
+          const t3 = a2.subtract(h2.getCenter()), e3 = h2.extend(a2).getSize().subtract(d);
+          r2.x += t3.x < 0 ? -e3.x : e3.x, r2.y += t3.y < 0 ? -e3.y : e3.y, this.panTo(this.containerPointToLatLng(r2), o2), this._enforcingBounds = false;
+        }
+        return this;
+      }, getBoundsZoom(t2, o2, e2) {
+        if (!this._rotate || Math.abs(this._bearing).toFixed(1) < 0.1) return _.getBoundsZoom.apply(this, arguments);
+        t2 = L.latLngBounds(t2), e2 = L.point(e2 || [0, 0]);
+        let i2 = this.getZoom() || 0;
+        const n2 = this.getMinZoom(), a2 = this.getMaxZoom(), s2 = this.getSize().subtract(e2), r2 = this.mapBoundsToContainerBounds(t2).getSize(), h2 = this.options.zoomSnap, d = s2.x / r2.x, p = s2.y / r2.y, l = o2 ? Math.max(d, p) : Math.min(d, p);
+        return i2 = this.getScaleZoom(l, i2), h2 && (i2 = Math.round(i2 / (h2 / 100)) * (h2 / 100), i2 = o2 ? Math.ceil(i2 / h2) * h2 : Math.floor(i2 / h2) * h2), Math.max(n2, Math.min(a2, i2));
+      }, _getCenterOffset: function(t2) {
+        var o2 = _._getCenterOffset.apply(this, arguments);
+        return this._rotate && (o2 = o2.rotate(this._bearing)), o2;
+      }, _getRotatePanePos: function() {
+        return this._rotatePanePos || new L.Point(0, 0);
+      }, _getNewPixelOrigin: function(t2, o2) {
+        if (!this._rotate) return _._getNewPixelOrigin.apply(this, arguments);
+        var e2 = this.getSize()._divideBy(2);
+        return this.project(t2, o2).rotate(this._bearing)._subtract(e2)._add(this._getMapPanePos())._add(this._getRotatePanePos()).rotate(-this._bearing)._round();
+      }, _getNewPixelBounds: function(t2, o2) {
+        if (t2 = t2 || this.getCenter(), o2 = o2 || this.getZoom(), !this._rotate && _._getNewPixelBounds) return _._getNewPixelBounds.apply(this, arguments);
+        var e2 = this._animatingZoom ? Math.max(this._animateToZoom, this.getZoom()) : this.getZoom(), i2 = this.getZoomScale(e2, o2), n2 = this.project(t2, o2).floor(), a2 = this.getSize(), s2 = new L.Bounds([this.containerPointToLayerPoint([0, 0]).floor(), this.containerPointToLayerPoint([a2.x, 0]).floor(), this.containerPointToLayerPoint([0, a2.y]).floor(), this.containerPointToLayerPoint([a2.x, a2.y]).floor()]).getSize().divideBy(2 * i2);
+        return new L.Bounds(n2.subtract(s2), n2.add(s2));
+      }, _getPixelCenter: function() {
+        return !this._rotate && _._getPixelCenter ? _._getPixelCenter.apply(this, arguments) : this.getSize()._divideBy(2)._subtract(this._getMapPanePos());
+      }, _getPaddedPixelBounds: function(t2) {
+        if (!this._rotate && _._getPaddedPixelBounds) return _._getPaddedPixelBounds.apply(this, arguments);
+        var o2 = t2, e2 = this.getSize(), i2 = e2.multiplyBy(-o2), n2 = e2.multiplyBy(1 + o2);
+        return new L.Bounds([this.containerPointToLayerPoint([i2.x, i2.y]).floor(), this.containerPointToLayerPoint([i2.x, n2.y]).floor(), this.containerPointToLayerPoint([n2.x, i2.y]).floor(), this.containerPointToLayerPoint([n2.x, n2.y]).floor()]);
+      }, _handleGeolocationResponse: function(t2) {
+        if (this._container._leaflet_id) {
+          var o2 = t2.coords.latitude, e2 = t2.coords.longitude, i2 = t2.coords.heading, n2 = new L.LatLng(o2, e2), a2 = n2.toBounds(t2.coords.accuracy), s2 = this._locateOptions;
+          if (s2.setView) {
+            var r2 = this.getBoundsZoom(a2);
+            this.setView(n2, s2.maxZoom ? Math.min(r2, s2.maxZoom) : r2);
+          }
+          var h2 = { latlng: n2, bounds: a2, timestamp: t2.timestamp, heading: i2 };
+          for (var _2 in t2.coords) "number" == typeof t2.coords[_2] && (h2[_2] = t2.coords[_2]);
+          this.fire("locationfound", h2);
+        }
+      } }), L.Map.CompassBearing = L.Handler.extend({ initialize: function(t2) {
+        this._map = t2, "ondeviceorientationabsolute" in window ? this.__deviceOrientationEvent = "deviceorientationabsolute" : "ondeviceorientation" in window && (this.__deviceOrientationEvent = "deviceorientation"), this._throttled = L.Util.throttle(this._onDeviceOrientation, 100, this);
+      }, addHooks: function() {
+        this._map._rotate && this.__deviceOrientationEvent ? L.DomEvent.on(window, this.__deviceOrientationEvent, this._throttled, this) : this.disable();
+      }, removeHooks: function() {
+        this._map._rotate && this.__deviceOrientationEvent && L.DomEvent.off(window, this.__deviceOrientationEvent, this._throttled, this);
+      }, _onDeviceOrientation: function(t2) {
+        var o2 = t2.webkitCompassHeading || t2.alpha, e2 = 0;
+        !t2.absolute && t2.webkitCompassHeading && (o2 = 360 - o2), t2.absolute || void 0 === window.orientation || (e2 = window.orientation), this._map.setBearing(o2 - e2);
+      } }), L.Map.addInitHook("addHandler", "compassBearing", L.Map.CompassBearing), L.Map.mergeOptions({ trackContainerMutation: false }), L.Map.ContainerMutation = L.Handler.extend({ addHooks: function() {
+        this._observer || (this._observer = new MutationObserver(L.Util.bind(this._map.invalidateSize, this._map))), this._observer.observe(this._map.getContainer(), { childList: false, attributes: true, characterData: false, subtree: false, attributeFilter: ["style"] });
+      }, removeHooks: function() {
+        this._observer.disconnect();
+      } }), L.Map.addInitHook("addHandler", "trackContainerMutation", L.Map.ContainerMutation), L.Map.mergeOptions({ bounceAtZoomLimits: true }), L.Map.TouchGestures = L.Handler.extend({ initialize: function(t2) {
+        this._map = t2, this.rotate = !!this._map.options.touchRotate, this.zoom = !!this._map.options.touchZoom;
+      }, addHooks: function() {
+        L.DomEvent.on(this._map._container, "touchstart", this._onTouchStart, this);
+      }, removeHooks: function() {
+        L.DomEvent.off(this._map._container, "touchstart", this._onTouchStart, this);
+      }, _onTouchStart: function(t2) {
+        var o2 = this._map;
+        if (t2.touches && 2 === t2.touches.length && !o2._animatingZoom && !this._zooming && !this._rotating) {
+          var e2 = o2.mouseEventToContainerPoint(t2.touches[0]), i2 = o2.mouseEventToContainerPoint(t2.touches[1]), n2 = e2.subtract(i2);
+          this._centerPoint = o2.getSize()._divideBy(2), this._startLatLng = o2.containerPointToLatLng(this._centerPoint), this.zoom ? ("center" !== o2.options.touchZoom && (this._pinchStartLatLng = o2.containerPointToLatLng(e2.add(i2)._divideBy(2))), this._startDist = e2.distanceTo(i2), this._startZoom = o2.getZoom(), this._zooming = true) : this._zooming = false, this.rotate ? (this._startTheta = Math.atan(n2.x / n2.y), this._startBearing = o2.getBearing(), n2.y < 0 && (this._startBearing += 180), this._rotating = true) : this._rotating = false, this._moved = false, o2._stop(), L.DomEvent.on(document, "touchmove", this._onTouchMove, this).on(document, "touchend touchcancel", this._onTouchEnd, this), L.DomEvent.preventDefault(t2);
+        }
+      }, _onTouchMove: function(t2) {
+        if (t2.touches && 2 === t2.touches.length && (this._zooming || this._rotating)) {
+          var o2, e2 = this._map, i2 = e2.mouseEventToContainerPoint(t2.touches[0]), n2 = e2.mouseEventToContainerPoint(t2.touches[1]), a2 = i2.subtract(n2), s2 = i2.distanceTo(n2) / this._startDist;
+          if (this._rotating) {
+            var r2 = (Math.atan(a2.x / a2.y) - this._startTheta) * L.DomUtil.RAD_TO_DEG;
+            a2.y < 0 && (r2 += 180), r2 && e2.setBearing(this._startBearing - r2);
+          }
+          if (this._zooming) if (this._zoom = e2.getScaleZoom(s2, this._startZoom), !e2.options.bounceAtZoomLimits && (this._zoom < e2.getMinZoom() && s2 < 1 || this._zoom > e2.getMaxZoom() && s2 > 1) && (this._zoom = e2._limitZoom(this._zoom)), "center" === e2.options.touchZoom) {
+            if (this._center = this._startLatLng, 1 === s2) return;
+          } else {
+            if (o2 = i2._add(n2)._divideBy(2)._subtract(this._centerPoint), 1 === s2 && 0 === o2.x && 0 === o2.y) return;
+            var h2 = -e2.getBearing() * L.DomUtil.DEG_TO_RAD;
+            this._center = e2.unproject(e2.project(this._pinchStartLatLng).subtract(o2.rotate(h2)));
+          }
+          this._moved || (e2._moveStart(true, false), this._moved = true), L.Util.cancelAnimFrame(this._animRequest);
+          var _2 = e2._move.bind(e2, this._center, this._zoom, { pinch: true, round: false }, void 0);
+          this._animRequest = L.Util.requestAnimFrame(_2, this, true), L.DomEvent.preventDefault(t2);
+        }
+      }, _onTouchEnd: function() {
+        this._moved && (this._zooming || this._rotating) ? (this._zooming = false, this._rotating = false, L.Util.cancelAnimFrame(this._animRequest), L.DomEvent.off(document, "touchmove", this._onTouchMove, this).off(document, "touchend touchcancel", this._onTouchEnd, this), this.zoom && (this._map.options.zoomAnimation ? this._map._animateZoom(this._center, this._map._limitZoom(this._zoom), true, this._map.options.zoomSnap) : this._map._resetView(this._center, this._map._limitZoom(this._zoom)))) : this._zooming = false;
+      } }), L.Map.addInitHook("addHandler", "touchGestures", L.Map.TouchGestures), L.Map.mergeOptions({ touchRotate: false }), L.Map.TouchRotate = L.Handler.extend({ addHooks: function() {
+        this._map.touchGestures.enable(), this._map.touchGestures.rotate = true;
+      }, removeHooks: function() {
+        this._map.touchGestures.rotate = false;
+      } }), L.Map.addInitHook("addHandler", "touchRotate", L.Map.TouchRotate), L.Map.mergeOptions({ shiftKeyRotate: true }), L.Map.ShiftKeyRotate = L.Handler.extend({ addHooks: function() {
+        L.DomEvent.on(this._map._container, "wheel", this._handleShiftScroll, this), this._map.shiftKeyRotate.rotate = true;
+      }, removeHooks: function() {
+        L.DomEvent.off(this._map._container, "wheel", this._handleShiftScroll, this), this._map.shiftKeyRotate.rotate = false;
+      }, _handleShiftScroll: function(t2) {
+        t2.shiftKey ? (t2.preventDefault(), this._map.scrollWheelZoom.disable(), this._map.setBearing(this._map._bearing * L.DomUtil.RAD_TO_DEG + 5 * Math.sign(t2.deltaY))) : this._map.scrollWheelZoom.enable();
+      } }), L.Map.addInitHook("addHandler", "shiftKeyRotate", L.Map.ShiftKeyRotate), L.Map.addInitHook(function() {
+        this.scrollWheelZoom.enabled() && this.shiftKeyRotate.enabled() && (this.scrollWheelZoom.disable(), this.scrollWheelZoom.enable());
+      }), L.Map.mergeOptions({ touchZoom: L.Browser.touch, bounceAtZoomLimits: false }), L.Map.TouchZoom = L.Handler.extend({ addHooks: function() {
+        L.DomUtil.addClass(this._map._container, "leaflet-touch-zoom"), this._map.touchGestures.enable(), this._map.touchGestures.zoom = true;
+      }, removeHooks: function() {
+        L.DomUtil.removeClass(this._map._container, "leaflet-touch-zoom"), this._map.touchGestures.zoom = false;
+      } }), L.Map.addInitHook("addHandler", "touchZoom", L.Map.TouchZoom), L.Control.Rotate = L.Control.extend({ options: { position: "topleft", closeOnZeroBearing: true }, onAdd: function(t2) {
+        var o2 = this._container = L.DomUtil.create("div", "leaflet-control-rotate leaflet-bar"), e2 = this._arrow = L.DomUtil.create("span", "leaflet-control-rotate-arrow");
+        e2.style.backgroundImage = `url("data:image/svg+xml;charset=utf-8,%3Csvg width='29' height='29' viewBox='0 0 29 29' xmlns='http://www.w3.org/2000/svg' fill='%23333'%3E%3Cpath d='M10.5 14l4-8 4 8h-8z'/%3E%3Cpath d='M10.5 16l4 8 4-8h-8z' fill='%23ccc'/%3E%3C/svg%3E")`, e2.style.cursor = "grab", e2.style.display = "block", e2.style.width = "100%", e2.style.height = "100%", e2.style.backgroundRepeat = "no-repeat", e2.style.backgroundPosition = "50%";
+        var i2 = this._link = L.DomUtil.create("a", "leaflet-control-rotate-toggle", o2);
+        return i2.appendChild(e2), i2.href = "#", i2.title = "Rotate map", L.DomEvent.on(i2, "dblclick", L.DomEvent.stopPropagation).on(i2, "mousedown", this._handleMouseDown, this).on(i2, "click", L.DomEvent.stop).on(i2, "click", this._cycleState, this).on(i2, "click", this._refocusOnMap, this), L.Browser.any3d || L.DomUtil.addClass(i2, "leaflet-disabled"), this._restyle(), t2.on("rotate", this._restyle, this), this._follow = false, this._canFollow = false, this.options.closeOnZeroBearing && 0 === t2.getBearing() && (o2.style.display = "none"), o2;
+      }, onRemove: function(t2) {
+        t2.off("rotate", this._restyle, this);
+      }, _handleMouseDown: function(t2) {
+        L.DomEvent.stop(t2), this.dragging = true, this.dragstartX = t2.pageX, this.dragstartY = t2.pageY, L.DomEvent.on(document, "mousemove", this._handleMouseDrag, this).on(document, "mouseup", this._handleMouseUp, this);
+      }, _handleMouseUp: function(t2) {
+        L.DomEvent.stop(t2), this.dragging = false, L.DomEvent.off(document, "mousemove", this._handleMouseDrag, this).off(document, "mouseup", this._handleMouseUp, this);
+      }, _handleMouseDrag: function(t2) {
+        if (this.dragging) {
+          var o2 = t2.clientX - this.dragstartX;
+          this._map.setBearing(o2);
+        }
+      }, _cycleState: function(t2) {
+        if (this._map) {
+          var o2 = this._map;
+          o2.touchRotate.enabled() || o2.compassBearing.enabled() ? o2.compassBearing.enabled() ? (o2.compassBearing.disable(), o2.setBearing(0), this.options.closeOnZeroBearing && o2.touchRotate.enable()) : (o2.touchRotate.disable(), o2.compassBearing.enable()) : o2.touchRotate.enable(), this._restyle();
+        }
+      }, _restyle: function() {
+        if (this._map.options.rotate) {
+          var t2 = this._map, o2 = t2.getBearing();
+          this._arrow.style.transform = "rotate(" + o2 + "deg)", o2 && this.options.closeOnZeroBearing && (this._container.style.display = "block"), t2.compassBearing.enabled() ? this._link.style.backgroundColor = "orange" : t2.touchRotate.enabled() ? this._link.style.backgroundColor = null : (this._link.style.backgroundColor = "grey", 0 === o2 && this.options.closeOnZeroBearing && (this._container.style.display = "none"));
+        } else L.DomUtil.addClass(this._link, "leaflet-disabled");
+      } }), L.control.rotate = function(t2) {
+        return new L.Control.Rotate(t2);
+      }, L.Map.mergeOptions({ rotateControl: true }), L.Map.addInitHook(function() {
+        if (this.options.rotateControl) {
+          var t2 = "object" == typeof this.options.rotateControl ? this.options.rotateControl : {};
+          this.rotateControl = L.control.rotate(t2), this.addControl(this.rotateControl);
+        }
+      });
+    });
+  }).call(window);
+}
 </script>
 <script>window.addEventListener("error", function(e) {
   try {
@@ -4144,7 +4153,8 @@ class Coverage {
     return { rows, tot, done, pct: tot ? done / tot * 100 : 0 };
   }
 }
-const map = L.map("map", { zoomControl: false, attributionControl: true, rotate: true, bearing: 0, rotateControl: false, touchRotate: false, compassBearing: false, shiftKeyRotate: false }).setView([37.7615, 140.4745], 17);
+const CAN_ROTATE = RP_ROTATE && typeof L.Map.prototype.setBearing === "function";
+const map = L.map("map", CAN_ROTATE ? { zoomControl: false, attributionControl: true, rotate: true, bearing: 0, rotateControl: false, touchRotate: false, compassBearing: false, shiftKeyRotate: false } : { zoomControl: false, attributionControl: true }).setView([37.7615, 140.4745], 17);
 L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png", { maxZoom: 18, attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル</a>' }).addTo(map);
 L.control.zoom({ position: "bottomright" }).addTo(map);
 const css = (k) => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
@@ -4485,7 +4495,8 @@ function deviceInfo() {
     "Chrome：" + (n.userAgent.match(/Chrome\/([\d.]+)/) || ["", "不明"])[1],
     "メモリ：" + (n.deviceMemory ? n.deviceMemory + "GB程度" : "不明"),
     "画面：" + screen.width + "×" + screen.height + "（倍率" + (window.devicePixelRatio || 1) + "）",
-    "画面点灯維持：" + (S.keepAwake === false ? "使わない" : "使う")
+    "画面点灯維持：" + (S.keepAwake === false ? "使わない" : "使う"),
+    "地図の回転部品：" + (CAN_ROTATE ? "有効" : "無効") + (RP_SAFE ? "（安全モード）" : "")
   ].join("<br>");
 }
 async function startTrip() {
@@ -4658,9 +4669,17 @@ function updateHeading(fx) {
     posIsArrow = arrow;
     posMarker.setIcon(L.divIcon({ className: "posIcon", html: arrow ? ICON_ARROW : ICON_DOT, iconSize: [44, 44] }));
   }
-  if (heading != null) posMarker.setRotation(heading * D2R);
+  if (heading != null) {
+    if (CAN_ROTATE) posMarker.setRotation(heading * D2R);
+    else {
+      const el = posMarker.getElement && posMarker.getElement();
+      const sv = el && el.firstChild;
+      if (sv) sv.style.transform = "rotate(" + heading + "deg)";
+    }
+  }
 }
 function applyBearing(force) {
+  if (!CAN_ROTATE) return;
   const target = S.headingUp && heading != null ? -heading : S.headingUp ? map.getBearing() : 0;
   const cur = map.getBearing();
   const diff = Math.abs(((target - cur) % 360 + 540) % 360 - 180);
@@ -4675,14 +4694,20 @@ function setHeadingUp(v) {
   saveSettings();
   $("rot").classList.toggle("on", v);
   $("rotTxt").textContent = v ? "進行方向" : "北が上";
-  if (!v) {
+  if (v !== CAN_ROTATE && !RP_SAFE) {
+    toast("地図を切り替えています…");
+    bc("OK");
+    saveTrip();
+    setTimeout(() => location.reload(), 400);
+    return;
+  }
+  if (!v && CAN_ROTATE) {
     map.setBearing(0);
   }
   applyBearing(true);
-  toast(v ? "進行方向が上になるように地図を回します" : "北が上の地図に戻しました");
 }
 $("rot").onclick = () => setHeadingUp(!S.headingUp);
-map.on("rotate", () => {
+if (CAN_ROTATE) map.on("rotate", () => {
   $("rotN").style.transform = `rotate(${map.getBearing()}deg)`;
 });
 $("rot").classList.toggle("on", S.headingUp);
@@ -5274,8 +5299,12 @@ function crashCheck() {
   });
   return true;
 }
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {
-});
+if ("serviceWorker" in navigator) {
+  if (RP_SAFE) navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {
+  });
+  else navigator.serviceWorker.register("sw.js").catch(() => {
+  });
+}
 (async () => {
   const saved = await DB.get("kv", "routes").catch(() => null);
   if (saved && saved.features) routesGJ = saved;
