@@ -4385,7 +4385,15 @@ function setGnss(level, text) {
   $("gdot").className = "dot " + level;
   $("gtxt").textContent = text;
 }
+let firstFixLogged = 99;
 function onFix(fx) {
+  if (firstFixLogged < 3) {
+    bc(["7.最初の位置受信", "8.2回目の位置受信", "9.3回目の位置受信"][firstFixLogged]);
+    setTimeout(() => {
+      firstFixLogged++;
+      if (firstFixLogged === 3) bc("OK");
+    }, 0);
+  }
   lastFix = fx;
   lastFixAt = Date.now();
   const lvl = fx.acc <= 5 ? "ok" : fx.acc <= 15 ? "mid" : "bad";
@@ -4464,18 +4472,42 @@ async function startSource() {
     Demo.start();
   } else Phone.start();
 }
+function bc(step) {
+  try {
+    localStorage.setItem("rp_bc", JSON.stringify({ step, t: Date.now() }));
+  } catch (e) {
+  }
+}
+function deviceInfo() {
+  const n = navigator;
+  return [
+    "端末：" + (n.userAgent.match(/\(([^)]+)\)/) || ["", ""])[1],
+    "Chrome：" + (n.userAgent.match(/Chrome\/([\d.]+)/) || ["", "不明"])[1],
+    "メモリ：" + (n.deviceMemory ? n.deviceMemory + "GB程度" : "不明"),
+    "画面：" + screen.width + "×" + screen.height + "（倍率" + (window.devicePixelRatio || 1) + "）",
+    "画面点灯維持：" + (S.keepAwake === false ? "使わない" : "使う")
+  ].join("<br>");
+}
 async function startTrip() {
+  bc("1.開始ボタン");
   trip = { id: "T" + Date.now(), start: Date.now(), end: null, source: S.source, name: S.name, car: S.car, routeName: routesGJ.name || "", points: [], events: [], dist: 0 };
   trackLine.setLatLngs([]);
   evLayer.clearLayers();
+  bc("2.位置情報の開始");
   await startSource();
-  keepAwake();
+  bc("3.画面の点灯維持");
+  if (S.keepAwake !== false) await keepAwake();
+  bc("4.記録の保存");
   await saveTrip();
+  bc("5.画面の切り替え");
   setUI();
   saveTimer = setInterval(saveTrip, 5e3);
   toast("巡回を開始しました");
+  bc("6.位置の受信待ち");
+  firstFixLogged = 0;
 }
 async function stopTrip() {
+  bc("OK");
   trip.end = Date.now();
   clearInterval(saveTimer);
   await saveTrip();
@@ -4750,6 +4782,7 @@ $("menuBtn").onclick = async () => {
       <label class="f" for="sBufU">巡回判定の幅（外部受信機）m</label><input type="number" id="sBufU" min="1" max="30" value="${S.bufferUsb}">
       <label class="f" for="sStep">記録間隔 m</label><input type="number" id="sStep" min="1" max="50" value="${S.recStep}">
       <label class="f" for="sAcc">この精度より悪い点は捨てる m</label><input type="number" id="sAcc" min="1" max="100" value="${S.maxAcc}">
+      <label class="f" for="sWake">記録中に画面を消さない</label><select id="sWake"><option value="1">使う（おすすめ）</option><option value="0">使わない（タブレットで落ちる場合）</option></select>
       <label class="f" for="sRatio">巡回済にする割合（10m区間のうち走った長さ）%</label><input type="number" id="sRatio" min="10" max="100" step="10" value="${S.coverRatio}">
       <div class="hint">50% なら、10m の区間のうち 5m 以上走ると青（巡回済）になります。</div>
       <button class="btn" id="sSave" style="background:var(--navy);color:#fff;border-color:var(--navy)">設定を保存</button>
@@ -4757,8 +4790,10 @@ $("menuBtn").onclick = async () => {
     <div class="sec"><b>路線データ</b><p>現在：${escapeHtml(routesGJ.name || "")}（${routesGJ.features.length}本）</p>
       <button class="btn" id="rImp">路線データを読み込む（.shp/.dbf/.prj を同時選択）</button>
       <div class="hint">メール・LINE等で受け取った路線データ（.geojson 1つ、または .shp/.dbf/.prj をまとめて）を選んでください。一度読み込めば、このスマホに保存されます。</div></div>
+    <div class="sec"><b>端末情報（不具合の連絡用）</b><p style="font-size:14px">${deviceInfo()}</p></div>
     <div class="row"><button class="big ghost" id="mClose">閉じる</button></div>`, (root) => {
     root.querySelector("#sSrc").value = S.source;
+    root.querySelector("#sWake").value = S.keepAwake === false ? "0" : "1";
     root.querySelectorAll("[data-rep]").forEach((b) => b.onclick = () => {
       closeSheet();
       showReport(b.dataset.rep);
@@ -4779,6 +4814,7 @@ $("menuBtn").onclick = async () => {
       S.bufferUsb = +root.querySelector("#sBufU").value || DEF.bufferUsb;
       S.recStep = Math.max(1, +root.querySelector("#sStep").value || 1);
       S.maxAcc = +root.querySelector("#sAcc").value || DEF.maxAcc;
+      S.keepAwake = root.querySelector("#sWake").value !== "0";
       S.coverRatio = Math.min(100, Math.max(10, +root.querySelector("#sRatio").value || 50));
       const changed = ns !== S.source;
       S.source = ns;
@@ -5223,6 +5259,21 @@ async function buildXlsx(d, tb) {
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
+function crashCheck() {
+  let b = null;
+  try {
+    b = JSON.parse(localStorage.getItem("rp_bc") || "null");
+  } catch (e) {
+  }
+  if (!b || b.step === "OK" || Date.now() - b.t > 30 * 6e4) return false;
+  bc("OK");
+  sheet(`<h2>前回、途中で止まりました</h2><p>「<b>${b.step}</b>」の処理中にアプリが止まったようです。この画面を写真に撮って、担当者に送ってください。</p>
+    <p style="font-size:15px">${deviceInfo()}</p>
+    <div class="row"><button class="big ghost" id="ccClose">閉じる</button></div>`, (r) => {
+    r.querySelector("#ccClose").onclick = closeSheet;
+  });
+  return true;
+}
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {
 });
 (async () => {
@@ -5230,11 +5281,19 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catc
   if (saved && saved.features) routesGJ = saved;
   clearedAt = await DB.get("kv", "clearedAt").catch(() => 0) || 0;
   const trips = await DB.all("trips").catch(() => []);
-  const open = trips.find((x) => !x.end);
+  let open = trips.find((x) => !x.end);
+  const crashed = crashCheck();
+  if (open && crashed) {
+    const lp = open.points[open.points.length - 1];
+    open.end = lp ? lp.t : open.start;
+    await DB.put("trips", open).catch(() => {
+    });
+    open = null;
+  }
   if (open) trip = open;
   buildCoverage();
   fitRoutes();
-  if (!routesGJ.features.length && !open) welcomeSheet();
+  if (!crashed && !routesGJ.features.length && !open) welcomeSheet();
   if (open) {
     trackLine.setLatLngs(trip.points.map((p) => [p.lat, p.lon]));
     trip.events.forEach(addEventMarker);
