@@ -4656,9 +4656,11 @@ function bc(step) {
   } catch (e) {
   }
 }
+const APP_VER = "2026-10-22b";
 function deviceInfo() {
   const n = navigator;
   return [
+    "アプリの版：" + APP_VER,
     "端末：" + (n.userAgent.match(/\(([^)]+)\)/) || ["", ""])[1],
     "Chrome：" + (n.userAgent.match(/Chrome\/([\d.]+)/) || ["", "不明"])[1],
     "メモリ：" + (n.deviceMemory ? n.deviceMemory + "GB程度" : "不明"),
@@ -4963,7 +4965,7 @@ function dayTable(day) {
 }
 $("menuBtn").onclick = async () => {
   const days = [...(await loadDays()).entries()].reverse();
-  sheet(`<h2>メニュー</h2>
+  sheet(`<h2>メニュー <small style="font-size:14px;color:var(--muted);font-weight:400">版 ${APP_VER}</small></h2>
     <div class="sec" style="border:0;margin:0;padding:0"><b>日付ごとの巡回記録</b>
       ${days.length ? days.slice(0, 30).map(([k, ts]) => {
     const d = mergeDay(k, ts);
