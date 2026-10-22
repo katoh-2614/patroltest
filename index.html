@@ -775,6 +775,7 @@ table.cov th:first-child,table.cov td:first-child,table.cov th:nth-child(2),tabl
 </div>
 <input type="file" id="cam" accept="image/*" capture="environment" hidden>
 <input type="file" id="routeFile" multiple hidden>
+<input type="file" id="routeFile1" hidden>
 <div id="toast" hidden></div>
 <div id="sheetHost"></div>
 
@@ -4730,8 +4731,9 @@ function welcomeSheet() {
     <button class="big navy" id="wLoad" style="width:100%">路線データを読み込む</button>
     <div class="row"><button class="big ghost" id="wLater">あとで</button></div>`, (r) => {
     r.querySelector("#wLoad").onclick = () => {
-      $("routeFile").value = "";
-      $("routeFile").click();
+      bc("路線:ファイル選択画面");
+      $("routeFile1").value = "";
+      $("routeFile1").click();
     };
     r.querySelector("#wLater").onclick = closeSheet;
   });
@@ -4813,7 +4815,8 @@ $("menuBtn").onclick = async () => {
       <button class="btn" id="sSave" style="background:var(--navy);color:#fff;border-color:var(--navy)">設定を保存</button>
     </div>
     <div class="sec"><b>路線データ</b><p>現在：${escapeHtml(routesGJ.name || "")}（${routesGJ.features.length}本）</p>
-      <button class="btn" id="rImp">路線データを読み込む（.shp/.dbf/.prj を同時選択）</button>
+      <button class="btn" id="rImp">路線データを読み込む（.geojson）</button>
+      <button class="btn" id="rImpShp">Shapeファイルを読み込む（.shp/.dbf/.prj をまとめて選択）</button>
       <div class="hint">メール・LINE等で受け取った路線データ（.geojson 1つ、または .shp/.dbf/.prj をまとめて）を選んでください。一度読み込めば、このスマホに保存されます。</div></div>
     <div class="sec"><b>端末情報（不具合の連絡用）</b><p style="font-size:14px">${deviceInfo()}</p></div>
     <div class="row"><button class="big ghost" id="mClose">閉じる</button></div>`, (root) => {
@@ -4853,6 +4856,12 @@ $("menuBtn").onclick = async () => {
       rebuildCumulative();
     };
     root.querySelector("#rImp").onclick = () => {
+      bc("路線:ファイル選択画面");
+      $("routeFile1").value = "";
+      $("routeFile1").click();
+    };
+    root.querySelector("#rImpShp").onclick = () => {
+      bc("路線:ファイル選択画面");
       $("routeFile").value = "";
       $("routeFile").click();
     };
@@ -4882,20 +4891,35 @@ async function deleteDay(key) {
     toast(keyLabel(key) + " の記録を削除しました");
   });
 }
-$("routeFile").addEventListener("change", async () => {
+async function onRouteFiles(input) {
+  const files = [...input.files];
+  if (!files.length) {
+    bc("OK");
+    return;
+  }
   try {
-    const gj = await importRouteFiles([...$("routeFile").files]);
+    bc("路線:ファイルの読み取り");
+    const gj = await importRouteFiles(files);
     if (!gj.features.length) throw new Error("線データが見つかりません");
+    bc("路線:スマホへの保存");
     routesGJ = gj;
     await DB.put("kv", gj, "routes");
+    bc("路線:区間の作成と地図表示");
     buildCoverage();
+    bc("路線:表示範囲の調整");
     fitRoutes();
     closeSheet();
+    bc("OK");
     toast(`路線 ${gj.features.length}本 を読み込みました` + (gj.zone && gj.zone !== "geo" ? `（平面直角 ${gj.zone}系）` : ""));
   } catch (e) {
+    bc("OK");
     toast(e.message || "読み込めませんでした", 4500);
   }
-});
+}
+$("routeFile").addEventListener("change", () => onRouteFiles($("routeFile")));
+$("routeFile1").addEventListener("change", () => onRouteFiles($("routeFile1")));
+$("routeFile1").addEventListener("cancel", () => bc("OK"));
+$("routeFile").addEventListener("cancel", () => bc("OK"));
 async function showReport(key) {
   const ts = (await loadDays()).get(key);
   if (!ts) {
