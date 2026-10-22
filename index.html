@@ -4278,6 +4278,22 @@ L.control.zoom({ position: "bottomright" }).addTo(map);
 const css = (k) => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 let routesGJ = DEFAULT_ROUTES, cov = null, pieceLayer = L.layerGroup().addTo(map), pieceLines = [];
 const trackLine = L.polyline([], { color: css("--track"), weight: 3, opacity: 0.9 }).addTo(map);
+let trackSegs = [[]];
+function setTrack(points) {
+  trackSegs = [[]];
+  points.forEach((p) => {
+    if (p.brk && trackSegs[trackSegs.length - 1].length) trackSegs.push([]);
+    trackSegs[trackSegs.length - 1].push([p.lat, p.lon]);
+  });
+  trackLine.setLatLngs(trackSegs);
+}
+function addTrackPoint(p) {
+  if (p.brk && trackSegs[trackSegs.length - 1].length) {
+    trackSegs.push([]);
+  }
+  trackSegs[trackSegs.length - 1].push([p.lat, p.lon]);
+  trackLine.setLatLngs(trackSegs);
+}
 const evLayer = L.layerGroup().addTo(map);
 const ICON_ARROW = '<svg width="44" height="44" viewBox="0 0 44 44"><path d="M22 4 L34 36 L22 29 L10 36 Z" fill="#1565c0" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>';
 const ICON_DOT = '<svg width="44" height="44" viewBox="0 0 44 44"><circle cx="22" cy="22" r="10" fill="#1565c0" stroke="#fff" stroke-width="3"/></svg>';
@@ -4585,6 +4601,75 @@ function setGnss(level, text) {
   $("gtxt").textContent = text;
 }
 let firstFixLogged = 99;
+const PF = { last: null, vx: 0, vy: 0, run: [], hist: [] };
+const pfXY = (a, b) => [(b.lon - a.lon) * 111320 * Math.cos(a.lat * D2R), (b.lat - a.lat) * 110540];
+function pfAccept(fx, vx, vy) {
+  PF.last = fx;
+  PF.vx = vx;
+  PF.vy = vy;
+  PF.run = [];
+}
+function posFilter(fx) {
+  const L2 = PF.last;
+  let dt = L2 ? (fx.t - L2.t) / 1e3 : 0;
+  if (!L2 || dt > 10 || dt <= 0) {
+    pfAccept(fx, 0, 0);
+    PF.hist = [];
+    return true;
+  }
+  const [dx, dy] = pfXY(L2, fx);
+  const ex = dx - PF.vx * dt, ey = dy - PF.vy * dt;
+  const innov = Math.hypot(ex, ey);
+  const gate = S.source === "drogger" ? Math.max(4, 1.5 * Math.max(fx.acc, 1) + 2) + 1.5 * dt * dt : Math.max(6, 2.5 * Math.max(fx.acc, 1) + 3 + 1.5 * dt * dt);
+  const keep = (x) => {
+    PF.hist.push(x);
+    if (PF.hist.length > 12) PF.hist.shift();
+  };
+  if (innov <= gate) {
+    let vx = dx / dt, vy = dy / dt;
+    const sp = Math.hypot(vx, vy);
+    if (sp > 50) {
+      vx *= 50 / sp;
+      vy *= 50 / sp;
+    }
+    pfAccept(fx, PF.vx * 0.5 + vx * 0.5, PF.vy * 0.5 + vy * 0.5);
+    keep({ ok: 1, acc: fx.acc });
+    return true;
+  }
+  keep({ ok: 0, acc: fx.acc });
+  PF.run.push(fx);
+  if (PF.run.length >= 4) {
+    let ok = true;
+    for (let i = 1; i < PF.run.length; i++) {
+      const a = PF.run[i - 1], b = PF.run[i];
+      const t = Math.max(0.05, (b.t - a.t) / 1e3);
+      if (Math.hypot(...pfXY(a, b)) / t > 50) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      const a = PF.run[PF.run.length - 2], b = fx;
+      const t = Math.max(0.05, (b.t - a.t) / 1e3);
+      const [x, y] = pfXY(a, b);
+      pfAccept(fx, x / t, y / t);
+      return true;
+    }
+    PF.run = [fx];
+  }
+  const acc = PF.hist.filter((h) => h.ok).map((h) => h.acc), rej = PF.hist.filter((h) => !h.ok).map((h) => h.acc);
+  const med = (v) => {
+    const s = [...v].sort((p, q) => p - q);
+    return s[Math.floor(s.length / 2)];
+  };
+  if (rej.length >= 4 && acc.length >= 2 && med(rej) < med(acc) * 0.6) {
+    pfAccept(fx, 0, 0);
+    PF.hist = [];
+    return true;
+  }
+  return false;
+}
+let lastPanAt = 0;
 function onFix(fx) {
   if (firstFixLogged < 3) {
     bc(["7.最初の位置受信", "8.2回目の位置受信", "9.3回目の位置受信"][firstFixLogged]);
@@ -4593,8 +4678,12 @@ function onFix(fx) {
       if (firstFixLogged === 3) bc("OK");
     }, 0);
   }
-  lastFix = fx;
   lastFixAt = Date.now();
+  if (!posFilter(fx)) {
+    PF.rejected = (PF.rejected || 0) + 1;
+    return;
+  }
+  lastFix = fx;
   const lvl = fx.acc <= 5 ? "ok" : fx.acc <= 15 ? "mid" : "bad";
   setGnss(lvl, (lvl === "ok" ? "良好" : lvl === "mid" ? "やや弱い" : "弱い") + " ±" + (fx.acc < 1 ? fx.acc.toFixed(2) : Math.round(fx.acc)) + "m" + (fx.qLabel ? " " + fx.qLabel : ""));
   if (S.source === "drogger" && fx.acc > 15) setGnss("bad", "DG-PRO1Sの位置が来ていません（Drogger GPSを確認）");
@@ -4607,31 +4696,42 @@ function onFix(fx) {
   }
   if (follow) {
     applyBearing();
-    map.panTo([fx.lat, fx.lon], { animate: false });
+    const c = map.latLngToContainerPoint([fx.lat, fx.lon]), sz = map.getSize();
+    const off = Math.hypot(c.x - sz.x / 2, c.y - sz.y / 2);
+    if (off > Math.min(sz.x, sz.y) * 0.08 || Date.now() - lastPanAt > 3e3) {
+      map.panTo([fx.lat, fx.lon], { animate: true, duration: 0.6, easeLinearity: 0.5, noMoveStart: true });
+      lastPanAt = Date.now();
+    }
   }
   if (!trip || trip.end) return;
   if (fx.acc > S.maxAcc) return;
-  const pts = trip.points, last = pts[pts.length - 1];
+  const pts = trip.points;
   const p = { t: fx.t, lat: +fx.lat.toFixed(8), lon: +fx.lon.toFixed(8), acc: +fx.acc.toFixed(2), spd: fx.spd != null ? +fx.spd.toFixed(2) : null };
-  if (!last) {
-    pts.push(p);
-    trackLine.addLatLng([p.lat, p.lon]);
+  const lm = trip.lm;
+  if (lm) {
+    const d = hav([lm.lat, lm.lon], [p.lat, p.lon]);
+    if (d < S.recStep) return;
+    const dt = Math.max(0.2, (p.t - lm.t) / 1e3);
+    const spd = p.spd != null ? p.spd : d >= fx.acc ? d / dt : 0;
+    if (spd < S.stopSpeed) return;
+    if (d <= 200) trip.dist += d;
+  }
+  trip.lm = p;
+  if (routesGJ.features.length && !cov.nearest(p.lat, p.lon, bufferNow())) {
+    trip.off = true;
     return;
   }
-  const d = hav([last.lat, last.lon], [p.lat, p.lon]);
-  if (d < S.recStep) return;
-  const dt = Math.max(0.2, (p.t - last.t) / 1e3);
-  const spd = p.spd != null ? p.spd : d >= fx.acc ? d / dt : 0;
-  if (spd < S.stopSpeed) return;
-  if (d > 200) p.brk = true;
+  const last = pts[pts.length - 1];
+  if (last && (trip.off || hav([last.lat, last.lon], [p.lat, p.lon]) > 200)) p.brk = true;
+  trip.off = false;
   pts.push(p);
-  if (!p.brk) trip.dist += d;
-  trackLine.addLatLng([p.lat, p.lon]);
-  if (p.brk) cov.hist = [];
-  if (!p.brk) {
-    const hit = cov.step(last, p, bufferNow());
-    if (hit.length) paintPieces();
+  addTrackPoint(p);
+  if (!last || p.brk) {
+    cov.hist = [];
+    return;
   }
+  const hit = cov.step(last, p, bufferNow());
+  if (hit.length) paintPieces();
 }
 function updateClock() {
   if (!trip) {
@@ -4684,7 +4784,7 @@ function bc(step) {
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-22c";
+const APP_VER = "2026-10-22f";
 function deviceInfo() {
   const n = navigator;
   return [
@@ -4700,7 +4800,7 @@ function deviceInfo() {
 async function startTrip() {
   bc("1.開始ボタン");
   trip = { id: "T" + Date.now(), start: Date.now(), end: null, source: S.source, name: S.name, car: S.car, routeName: routesGJ.name || "", points: [], events: [], dist: 0 };
-  trackLine.setLatLngs([]);
+  setTrack([]);
   evLayer.clearLayers();
   bc("2.位置情報の開始");
   await startSource();
@@ -4742,29 +4842,30 @@ function setUI() {
   $("btnStop").hidden = !rec;
   $("rec").classList.toggle("on", !!rec);
 }
-let pendingEvent = null;
+let pendingEvent = null, evMemoDraft = "";
+const MAX_PHOTOS = 3;
 $("btnEvent").onclick = () => {
   if (tapGuard()) return;
   if (!lastFix) {
     toast("まだ位置が取れていません");
     return;
   }
-  pendingEvent = { t: Date.now(), lat: lastFix.lat, lon: lastFix.lon, acc: lastFix.acc };
+  pendingEvent = { t: Date.now(), lat: lastFix.lat, lon: lastFix.lon, acc: lastFix.acc, blobs: [] };
+  evMemoDraft = "";
   $("cam").value = "";
   $("cam").click();
 };
 $("cam").addEventListener("change", async () => {
   const f = $("cam").files[0];
-  let photo = null;
-  if (f) {
+  if (f && pendingEvent) {
     try {
-      photo = await resizeImage(f, 1600, 0.82);
+      pendingEvent.blobs.push(await resizeImage(f, 1600, 0.82));
     } catch (e) {
     }
   }
-  askEventType(photo);
+  askEventType();
 });
-$("cam").addEventListener("cancel", () => askEventType(null));
+$("cam").addEventListener("cancel", () => askEventType());
 async function resizeImage(file, max, q) {
   const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
   const s = Math.min(1, max / Math.max(bmp.width, bmp.height));
@@ -4774,37 +4875,58 @@ async function resizeImage(file, max, q) {
   c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
   return await new Promise((r) => c.toBlob(r, "image/jpeg", q));
 }
-function askEventType(photo) {
+function askEventType() {
   if (!pendingEvent) return;
-  const ev = pendingEvent;
-  pendingEvent = null;
-  sheet(`<h2>何がありましたか？</h2><p>${photo ? "写真を撮りました。" : "写真はありません。"}当てはまるものを押してください。</p>
+  const ev = pendingEvent, n = ev.blobs.length, urls = ev.blobs.map((b) => URL.createObjectURL(b));
+  sheet(`<h2>何がありましたか？</h2>
+    <div style="display:flex;gap:8px;align-items:center;margin:4px 0 10px;flex-wrap:wrap">${urls.map((u) => `<img src="${u}" alt="" style="width:84px;height:64px;object-fit:cover;border-radius:8px;border:2px solid var(--line)">`).join("")}
+      <span style="color:var(--muted)">写真 ${n} 枚</span></div>
+    ${n < MAX_PHOTOS ? `<button class="btn" id="evMore" style="margin:0 0 12px">📷 写真を追加する（あと ${MAX_PHOTOS - n} 枚）</button>` : ""}
+    <p>当てはまるものを押すと記録されます。</p>
     <div class="grid">${EVENT_TYPES.map((t) => `<button class="opt" data-t="${t}">${t}</button>`).join("")}</div>
-    <label class="f" for="evMemo">メモ（なくても大丈夫です）</label><input type="text" id="evMemo" placeholder="例：右側路肩、直径30cm程度">
+    <label class="f" for="evMemo">メモ（なくても大丈夫です）</label><input type="text" id="evMemo" placeholder="例：右側路肩、直径30cm程度" value="${escapeHtml(evMemoDraft)}">
     <div class="row"><button class="big ghost" id="evCancel">取り消す</button></div>`, (root) => {
+    const memo = root.querySelector("#evMemo");
+    memo.oninput = () => evMemoDraft = memo.value;
+    const more = root.querySelector("#evMore");
+    if (more) more.onclick = () => {
+      $("cam").value = "";
+      $("cam").click();
+    };
     root.querySelectorAll(".opt").forEach((b) => b.onclick = async () => {
-      await saveEvent(ev, b.dataset.t, root.querySelector("#evMemo").value, photo);
+      pendingEvent = null;
+      urls.forEach((u) => URL.revokeObjectURL(u));
+      await saveEvent(ev, b.dataset.t, memo.value);
       closeSheet();
     });
-    root.querySelector("#evCancel").onclick = closeSheet;
+    root.querySelector("#evCancel").onclick = () => {
+      pendingEvent = null;
+      closeSheet();
+    };
   });
 }
-async function saveEvent(ev, type, memo, photo) {
+async function saveEvent(ev, type, memo) {
   ev.no = trip.events.length + 1;
   ev.type = type;
   ev.memo = memo || "";
   const n = cov.nearest(ev.lat, ev.lon);
   ev.route = n ? n.route : "";
   ev.dir = n ? n.dir : "";
-  if (photo) {
-    ev.photo = trip.id + "_" + ev.no;
-    await DB.put("photos", photo, ev.photo);
+  const blobs = ev.blobs || [];
+  delete ev.blobs;
+  ev.photos = [];
+  for (let k = 0; k < blobs.length; k++) {
+    const key = trip.id + "_" + ev.no + (k ? "_" + (k + 1) : "");
+    await DB.put("photos", blobs[k], key);
+    ev.photos.push(key);
   }
+  if (ev.photos.length) ev.photo = ev.photos[0];
   trip.events.push(ev);
   addEventMarker(ev);
   await saveTrip();
-  toast("No." + ev.no + " " + type + " を記録しました");
+  toast("No." + ev.no + " " + type + " を記録しました（写真 " + ev.photos.length + " 枚）");
 }
+const evPhotos = (e) => e.photos && e.photos.length ? e.photos : e.photo ? [e.photo] : [];
 function addEventMarker(ev) {
   L.marker([ev.lat, ev.lon], { icon: L.divIcon({ className: "evIcon", html: String(ev.no), iconSize: [26, 26] }) }).bindPopup(`No.${ev.no} ${ev.type}<br>${fmtTime(ev.t)}${ev.memo ? "<br>" + escapeHtml(ev.memo) : ""}`).addTo(evLayer);
 }
@@ -4888,7 +5010,7 @@ function applyBearing(force) {
   const target = S.headingUp && heading != null ? -heading : S.headingUp ? map.getBearing() : 0;
   const cur = map.getBearing();
   const diff = Math.abs(((target - cur) % 360 + 540) % 360 - 180);
-  if (force || diff > 4 && Date.now() - lastBearingAt > 400) {
+  if (force || diff > 8 && Date.now() - lastBearingAt > 1e3) {
     map.setBearing(target);
     lastBearingAt = Date.now();
   }
@@ -5080,14 +5202,14 @@ async function deleteDay(key) {
   }
   confirmSheet(keyLabel(key) + " の記録を削除しますか？", `${ts.length}回分の走行軌跡・異常箇所の写真をすべて削除します。<b>元に戻せません。</b>必要なら先に日報を保存してください。`, "削除する", async () => {
     for (const t of ts) {
-      for (const e of t.events) if (e.photo) await DB.del("photos", e.photo).catch(() => {
+      for (const e of t.events) for (const k of evPhotos(e)) await DB.del("photos", k).catch(() => {
       });
       await DB.del("trips", t.id).catch(() => {
       });
     }
     if (trip && dayKey(trip.start) === key) {
       trip = null;
-      trackLine.setLatLngs([]);
+      setTrack([]);
       evLayer.clearLayers();
       updateClock();
     }
@@ -5133,8 +5255,8 @@ async function showReport(key) {
   const d = mergeDay(key, ts), tb = dayTable(d);
   sheet(`<h2>巡回日報 ${keyLabel(key)}</h2>
     <dl class="kv"><dt>時間</dt><dd>${fmtTime(d.start).slice(0, 5)} 〜 ${d.end ? fmtTime(d.end).slice(0, 5) : "記録中"}（${ts.length}回・計${fmtDur(d.drive)}）</dd>
-    <dt>走行距離</dt><dd>${(d.dist / 1e3).toFixed(2)} km</dd>
-    <dt>当日の巡回</dt><dd>${tb.nDay} 路線・${Math.round(tb.dayDone)} m</dd>
+    <dt>走行距離<br><small>実走行・路線外を含む</small></dt><dd>${(d.dist / 1e3).toFixed(2)} km</dd>
+    <dt>当日巡回延長<br><small>路線データ上の延長</small></dt><dd>${tb.nDay} 路線・${Math.round(tb.dayDone)} m</dd>
     <dt>累計巡回率</dt><dd>${tb.cumPct.toFixed(0)} %（全${tb.nRoutes}路線）</dd>
     <dt>異常</dt><dd>${d.events.length} 件</dd><dt>担当</dt><dd>${escapeHtml(d.name || "—")}</dd></dl>
     <p style="margin:12px 0 4px">当日に巡回した路線（${tb.rows.length ? "一部でも走った路線のみ" : "なし"}）</p>
@@ -5199,7 +5321,7 @@ function buildGeoJSON(d, c) {
     const [la, lo] = c.ll(x, y);
     return [+lo.toFixed(8), +la.toFixed(8)];
   }) } }));
-  d.events.forEach((e) => F.push({ type: "Feature", properties: { layer: "異常箇所", no: e.no, type: e.type, time: fmtDate(e.t) + " " + fmtTime(e.t), route: e.route, memo: e.memo, acc_m: +e.acc.toFixed(1), photo: e.photo ? e.photo + ".jpg" : "" }, geometry: { type: "Point", coordinates: [e.lon, e.lat] } }));
+  d.events.forEach((e) => F.push({ type: "Feature", properties: { layer: "異常箇所", no: e.no, type: e.type, time: fmtDate(e.t) + " " + fmtTime(e.t), route: e.route, memo: e.memo, acc_m: +e.acc.toFixed(1), photo: evPhotos(e).map((k) => k + ".jpg").join(","), photos: evPhotos(e).length }, geometry: { type: "Point", coordinates: [e.lon, e.lat] } }));
   return { type: "FeatureCollection", name: "巡回結果_" + d.key, features: F };
 }
 function buildGpx(d) {
@@ -5416,7 +5538,7 @@ async function buildXlsx(d, tb) {
     cell.border = box;
   };
   const ws = wb.addWorksheet("日報", { pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
-  ws.columns = [{ width: 14 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 10 }];
+  ws.columns = [{ width: 28 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 28 }, { width: 12 }, { width: 10 }];
   ws.mergeCells("A1:G1");
   ws.getCell("A1").value = "道路パトロール日報";
   ws.getCell("A1").font = { bold: true, size: 18 };
@@ -5430,8 +5552,8 @@ async function buildXlsx(d, tb) {
     ["開始時刻", fmtTime(d.start)],
     ["終了時刻", d.end ? fmtTime(d.end) : "（記録中）"],
     ["走行時間", fmtDur(d.drive)],
-    ["走行距離", (d.dist / 1e3).toFixed(2) + " km"],
-    ["当日巡回", tb.nDay + " 路線・" + Math.round(tb.dayDone) + " m"],
+    ["走行距離\n（実走行・路線外を含む）", (d.dist / 1e3).toFixed(2) + " km"],
+    ["当日巡回延長\n（路線データ上の延長）", tb.nDay + " 路線・" + Math.round(tb.dayDone) + " m"],
     ["累計巡回率", tb.cumPct.toFixed(1) + " %（全" + tb.nRoutes + "路線）"],
     ["異常件数", d.events.length + " 件"],
     ["受信機", d.source]
@@ -5445,13 +5567,13 @@ async function buildXlsx(d, tb) {
     head(k);
     for (let c = col + 1; c <= col + 2 + i % 2; c++) ws.getCell(r, c).border = box;
     v.alignment = { vertical: "middle" };
-    ws.getRow(r).height = 22;
+    ws.getRow(r).height = /\n/.test(kv[0]) || /\n/.test(info[i ^ 1] ? info[i ^ 1][0] : "") ? 40 : 22;
   });
   let r0 = 3 + Math.ceil(info.length / 2) + 1;
   ws.getCell(r0, 1).value = "当日に巡回した路線（一部でも走行した路線のみ）";
   ws.getCell(r0, 1).font = { bold: true, size: 13 };
   r0++;
-  ["路線番号", "区分", "延長(m)", "当日巡回(m)", "累計巡回(m)", "累計巡回率(%)", "状況"].forEach((h, i) => {
+  ["路線番号", "区分", "延長(m)", "当日巡回延長(m)", "累計巡回延長(m)", "累計巡回率(%)", "状況"].forEach((h, i) => {
     const cl = ws.getCell(r0, i + 1);
     cl.value = h;
     head(cl);
@@ -5481,33 +5603,33 @@ async function buildXlsx(d, tb) {
   ws.getCell(r1 + 24, 1).value = "※背景は国土地理院の地理院タイル（淡色地図）を使用。位置はGNSS測位によるもので誤差を含みます。走行軌跡はGPXファイルで別途保存できます。";
   ws.getCell(r1 + 24, 1).font = { size: 9, color: { argb: "FF5B6875" } };
   const we = wb.addWorksheet("異常箇所", { pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
-  we.columns = [{ header: "No", width: 5 }, { header: "時刻", width: 10 }, { header: "種別", width: 16 }, { header: "路線", width: 9 }, { header: "緯度", width: 12 }, { header: "経度", width: 13 }, { header: "精度(m)", width: 8 }, { header: "メモ", width: 24 }, { header: "地図", width: 10 }, { header: "写真", width: 44 }];
+  we.columns = [{ header: "No", width: 5 }, { header: "時刻", width: 10 }, { header: "種別", width: 16 }, { header: "路線", width: 9 }, { header: "緯度", width: 12 }, { header: "経度", width: 13 }, { header: "精度(m)", width: 8 }, { header: "メモ", width: 24 }, { header: "地図", width: 8 }, { header: "写真1", width: 30 }, { header: "写真2", width: 30 }, { header: "写真3", width: 30 }];
   we.getRow(1).eachCell(head);
   we.getRow(1).height = 24;
   for (let i = 0; i < d.events.length; i++) {
     const e = d.events[i], r = i + 2;
     const row = we.getRow(r);
     row.values = [e.no, fmtTime(e.t), e.type, e.route ? e.route + (e.dir ? "(" + e.dir + ")" : "") : "路線外", +e.lat.toFixed(7), +e.lon.toFixed(7), +e.acc.toFixed(1), e.memo, { text: "地図", hyperlink: `https://maps.gsi.go.jp/#18/${e.lat.toFixed(6)}/${e.lon.toFixed(6)}/` }];
-    row.height = e.photo ? 170 : 24;
-    for (let ci = 1; ci <= 10; ci++) {
+    const ph = evPhotos(e);
+    row.height = ph.length ? 130 : 24;
+    for (let ci = 1; ci <= 12; ci++) {
       const cl = we.getCell(r, ci);
       cl.border = box;
       cl.alignment = { vertical: "middle", wrapText: true, horizontal: ci <= 4 ? "center" : void 0 };
     }
     we.getCell(r, 9).font = { color: { argb: "FF1565C0" }, underline: true };
-    if (e.photo) {
-      const b = await DB.get("photos", e.photo).catch(() => null);
-      if (b) {
-        const small = await resizeImage(b, 640, 0.8);
-        const bmp = await createImageBitmap(small);
-        const k = Math.min(300 / bmp.width, 210 / bmp.height);
-        we.addImage(wb.addImage({ base64: await toB64(small), extension: "jpeg" }), { tl: { col: 9.05, row: r - 1 + 0.04 }, ext: { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) } });
-      }
+    for (let k2 = 0; k2 < ph.length && k2 < 3; k2++) {
+      const b = await DB.get("photos", ph[k2]).catch(() => null);
+      if (!b) continue;
+      const small = await resizeImage(b, 640, 0.8);
+      const bmp = await createImageBitmap(small);
+      const k = Math.min(205 / bmp.width, 165 / bmp.height);
+      we.addImage(wb.addImage({ base64: await toB64(small), extension: "jpeg" }), { tl: { col: 9.05 + k2, row: r - 1 + 0.04 }, ext: { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) } });
     }
   }
   if (!d.events.length) {
     we.getCell(2, 1).value = "異常の記録はありません";
-    we.mergeCells(2, 1, 2, 10);
+    we.mergeCells(2, 1, 2, 12);
   }
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -5561,7 +5683,7 @@ if ("serviceWorker" in navigator) {
   fitRoutes();
   if (!crashed && !routesGJ.features.length && !open) welcomeSheet();
   if (open) {
-    trackLine.setLatLngs(trip.points.map((p) => [p.lat, p.lon]));
+    setTrack(trip.points);
     trip.events.forEach(addEventMarker);
     saveTimer = setInterval(saveTrip, 5e3);
     setUI();
