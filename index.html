@@ -3778,7 +3778,7 @@ window.addEventListener("error", function(e) {
 </script>
 <script>"use strict";
 const DEFAULT_ROUTES = { "type": "FeatureCollection", "name": "", "features": [] };
-const DEF = { name: "", car: "", source: "phone", recStep: 1, buffer: 10, bufferUsb: 8, maxAcc: 30, pieceLen: 10, stopSpeed: 0.8, headingUp: false, coverRatio: 50 };
+const DEF = { name: "", car: "", source: "phone", recStep: 1, buffer: 10, bufferUsb: 8, maxAcc: 30, pieceLen: 10, stopSpeed: 0.8, headingUp: false, coverRatio: 50, dgMaxAcc: 5 };
 let S = Object.assign({}, DEF);
 try {
   Object.assign(S, JSON.parse(localStorage.getItem("rp_settings") || "{}"));
@@ -4202,7 +4202,7 @@ class Coverage {
     const hit = [];
     for (let k = 0; k <= n; k++) {
       const x = A[0] + (B[0] - A[0]) * k / n, y = A[1] + (B[1] - A[1]) * k / n;
-      let best = null;
+      let best = null, cur = null;
       for (const i of this.near(x, y)) {
         const p2 = this.pieces[i];
         const [d, brg, along] = this.pieceDist(p2, x, y);
@@ -4212,11 +4212,23 @@ class Coverage {
         if (!ok) continue;
         const key = p2.route + "|" + (p2.directional ? p2.dir : "");
         const score = d - (key === this.lastKey ? 3 : 0);
-        if (!best || score < best.score) best = { i, p: p2, along, score, key };
+        const c = { i, p: p2, along, score, key };
+        if (key === this.lastKey && (!cur || score < cur.score)) cur = c;
+        if (!best || score < best.score) best = c;
       }
-      if (!best) continue;
-      this.lastKey = best.key;
-      const p = best.p;
+      if (!best) {
+        this.sw = 0;
+        continue;
+      }
+      let use = best;
+      if (cur && best.key !== cur.key) {
+        this.sw = (this.sw || 0) + 1;
+        if (this.sw < 8) use = cur;
+        else this.sw = 0;
+      } else this.sw = 0;
+      this.lastKey = use.key;
+      const p = use.p;
+      best = use;
       if (p.visited) continue;
       const bn = Math.min(p.bins.length - 1, Math.max(0, Math.floor(best.along / p.len * p.bins.length)));
       if (!p.bins[bn]) {
@@ -4249,6 +4261,7 @@ class Coverage {
   reset() {
     this.lastKey = null;
     this.hist = [];
+    this.sw = 0;
     this.pieces.forEach((p) => {
       p.visited = false;
       p.bins.fill(0);
@@ -4258,6 +4271,7 @@ class Coverage {
   add(points, buffer) {
     this.lastKey = null;
     this.hist = [];
+    this.sw = 0;
     for (let i = 1; i < points.length; i++) {
       if (points[i].brk) {
         this.hist = [];
@@ -4703,13 +4717,16 @@ function onFix(fx) {
     }, 0);
   }
   lastFixAt = Date.now();
+  if (S.source === "drogger" && fx.acc > S.dgMaxAcc) {
+    setGnss("bad", "DG-PRO1Sの位置ではない可能性（±" + Math.round(fx.acc) + "m）");
+    return;
+  }
   for (const f of posFilter(fx)) handleFix(f);
 }
 function handleFix(fx) {
   lastFix = fx;
   const lvl = fx.acc <= 5 ? "ok" : fx.acc <= 15 ? "mid" : "bad";
   setGnss(lvl, (lvl === "ok" ? "良好" : lvl === "mid" ? "やや弱い" : "弱い") + " ±" + (fx.acc < 1 ? fx.acc.toFixed(2) : Math.round(fx.acc)) + "m" + (fx.qLabel ? " " + fx.qLabel : ""));
-  if (S.source === "drogger" && fx.acc > 15) setGnss("bad", "DG-PRO1Sの位置が来ていません（Drogger GPSを確認）");
   updateHeading(fx);
   posMarker.setLatLng([fx.lat, fx.lon]);
   accCircle.setLatLng([fx.lat, fx.lon]).setRadius(fx.acc);
@@ -4728,6 +4745,7 @@ function handleFix(fx) {
   }
   if (!trip || trip.end) return;
   if (fx.acc > S.maxAcc) return;
+  if (S.source === "drogger" && fx.acc > S.dgMaxAcc) return;
   const pts = trip.points;
   const p = { t: fx.t, lat: +fx.lat.toFixed(8), lon: +fx.lon.toFixed(8), acc: +fx.acc.toFixed(2), spd: fx.spd != null ? +fx.spd.toFixed(2) : null };
   const lm = trip.lm;
@@ -4813,7 +4831,7 @@ function bc(step) {
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-22h";
+const APP_VER = "2026-10-23a";
 function deviceInfo() {
   const n = navigator;
   return [
@@ -5165,6 +5183,8 @@ $("menuBtn").onclick = async () => {
       <label class="f" for="sStep">記録間隔 m</label><input type="number" id="sStep" min="1" max="50" value="${S.recStep}">
       <label class="f" for="sAcc">この精度より悪い点は捨てる m</label><input type="number" id="sAcc" min="1" max="100" value="${S.maxAcc}">
       <label class="f" for="sWake">記録中に画面を消さない</label><select id="sWake"><option value="1">使う（おすすめ）</option><option value="0">使わない（タブレットで落ちる場合）</option></select>
+      <label class="f" for="sDgAcc">DG-PRO1S設定時、この精度より悪い位置は使わない m</label><input type="number" id="sDgAcc" min="2" max="30" value="${S.dgMaxAcc}">
+      <div class="hint">DG-PRO1S の位置は通常 ±1〜2m です。これより悪い値の位置は、スマホ自身の位置が混ざったものとして捨てます。</div>
       <label class="f" for="sRatio">巡回済にする割合（10m区間のうち走った長さ）%</label><input type="number" id="sRatio" min="10" max="100" step="10" value="${S.coverRatio}">
       <div class="hint">50% なら、10m の区間のうち 5m 以上走ると青（巡回済）になります。</div>
       <button class="btn" id="sSave" style="background:var(--navy);color:#fff;border-color:var(--navy)">設定を保存</button>
@@ -5198,6 +5218,7 @@ $("menuBtn").onclick = async () => {
       S.recStep = Math.max(1, +root.querySelector("#sStep").value || 1);
       S.maxAcc = +root.querySelector("#sAcc").value || DEF.maxAcc;
       S.keepAwake = root.querySelector("#sWake").value !== "0";
+      S.dgMaxAcc = Math.max(2, +root.querySelector("#sDgAcc").value || 5);
       S.coverRatio = Math.min(100, Math.max(10, +root.querySelector("#sRatio").value || 50));
       const changed = ns !== S.source;
       S.source = ns;
@@ -5365,7 +5386,7 @@ function buildGpx(d) {
   d.points.forEach((p, i) => {
     if (p.brk && i) s += `</trkseg><trkseg>
 `;
-    s += `<trkpt lat="${p.lat}" lon="${p.lon}"><time>${iso(p.t)}</time></trkpt>
+    s += `<trkpt lat="${p.lat}" lon="${p.lon}"><time>${iso(p.t)}</time>${p.acc != null ? `<desc>acc=${p.acc}m</desc>` : ""}</trkpt>
 `;
   });
   return s + `</trkseg></trk></gpx>

@@ -684,6 +684,7 @@ button.del{background:#b3261e;color:#fff;border-color:#b3261e;text-align:center}
 <button data-t="5">⑤ 画面の点灯維持</button>
 <button data-t="6">⑥ 地図の回転</button>
 <button data-t="7">⑦ オフライン機能の状態</button>
+<button data-t="9">⑨ USB受信機の認識（受信機をつないでから）</button>
 <button data-t="8">⑧ 路線データ（.geojson）の読み込み</button>
 <input type="file" id="f8" hidden>
 <div id="map"></div>
@@ -734,10 +735,15 @@ var tests={
        try{ var gj=JSON.parse(txt); mark("8d"); done(t,true,"読み込めた（線 "+((gj.features||[]).length)+"本）"); }catch(e){ done(t,false,"中身がGeoJSONではありません（"+e.message+"）"); } };
      fr.onerror=function(){ done(t,false,"読み取れません"); }; fr.readAsText(f); };
    inp.click(); },
+ "9":function(t){ log("　Web Serial："+("serial" in navigator?"あり":"なし")+"／WebUSB："+("usb" in navigator?"あり":"なし"));
+   if(!("usb" in navigator)){ done(t,false,"WebUSBが使えません"); return; }
+   navigator.usb.requestDevice({filters:[]}).then(function(dv){ var c=dv.configurations&&dv.configurations[0]; var cls=c?c.interfaces.map(function(i){ return i.alternates[0].interfaceClass; }).join(","):"?";
+     done(t,true,(dv.manufacturerName||"")+" "+(dv.productName||"")+" VID:"+dv.vendorId.toString(16)+" PID:"+dv.productId.toString(16)+" class:"+cls); },
+     function(e){ done(t,false,"見つからない（"+e.name+"）"); }); },
  "7":function(t){ if(!("serviceWorker" in navigator)){ done(t,true,"非対応"); return; }
    navigator.serviceWorker.getRegistrations().then(function(rs){ done(t,true,"登録 "+rs.length+"件"); },function(){ done(t,false,"確認できない"); }); }
 };
-[].forEach.call(document.querySelectorAll("[data-t]"),function(b){ b.onclick=function(){ var t=b.getAttribute("data-t"); mark(t); if(t==="8"){ try{ tests[t](t); }catch(e){ done(t,false,e.message); } return; } setTimeout(function(){ try{ tests[t](t); }catch(e){ done(t,false,e.message); } },50); }; });
+[].forEach.call(document.querySelectorAll("[data-t]"),function(b){ b.onclick=function(){ var t=b.getAttribute("data-t"); mark(t); if(t==="8"||t==="9"){ try{ tests[t](t); }catch(e){ done(t,false,e.message); } return; } setTimeout(function(){ try{ tests[t](t); }catch(e){ done(t,false,e.message); } },50); }; });
 document.getElementById("wipe").onclick=function(){ var b=this; if(b.dataset.c!=="1"){ b.dataset.c="1"; b.textContent="本当に消す場合は、もう一度押してください"; return; }
   try{ indexedDB.deleteDatabase("roadpatrol"); }catch(e){}
   try{ ["rp_settings","rp_bc","rp_diag_step","rp_diag_log"].forEach(function(k){ localStorage.removeItem(k); }); }catch(e){}
