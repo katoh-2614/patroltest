@@ -3744,7 +3744,30 @@ if (RP_ROTATE) {
   }).call(window);
 }
 </script>
-<script>window.addEventListener("error", function(e) {
+<script>if (/[?&]reset/.test(location.search)) {
+  try {
+    indexedDB.deleteDatabase("roadpatrol");
+  } catch (e) {
+  }
+  try {
+    ["rp_settings", "rp_bc"].forEach(function(k) {
+      localStorage.removeItem(k);
+    });
+  } catch (e) {
+  }
+  try {
+    navigator.serviceWorker && navigator.serviceWorker.getRegistrations().then(function(rs) {
+      rs.forEach(function(r) {
+        r.unregister();
+      });
+    });
+  } catch (e) {
+  }
+  setTimeout(function() {
+    location.replace(location.pathname);
+  }, 800);
+}
+window.addEventListener("error", function(e) {
   try {
     var t = document.getElementById("toast");
     t.textContent = "エラー：" + (e.message || "不明") + "（画面を送ってください）";
@@ -3930,9 +3953,15 @@ async function importRouteFiles(files) {
   for (const f of files) {
     by[f.name.split(".").pop().toLowerCase()] = f;
   }
-  if (by.geojson || by.json) {
-    const gj = JSON.parse(await (by.geojson || by.json).text());
-    return normalizeGeoJSON(gj, (by.geojson || by.json).name);
+  const gf = by.geojson || by.json || (files.length === 1 ? files[0] : null);
+  if (gf && !by.shp) {
+    let gj;
+    try {
+      gj = JSON.parse(await gf.text());
+    } catch (e) {
+      throw new Error("GeoJSONとして読めません。ファイルを確認してください");
+    }
+    return await normalizeGeoJSON(gj, gf.name);
   }
   if (!by.shp || !by.dbf) throw new Error(".shp と .dbf を同時に選んでください（.prj もあると座標系を自動判定します）");
   const prj = by.prj ? await by.prj.text() : null;
@@ -3956,20 +3985,80 @@ async function importRouteFiles(files) {
       return feats.push({ type: "Feature", properties: { route: String((_a = r[fRoute]) != null ? _a : i + 1), dir }, geometry: { type: "LineString", coordinates: line.map(([x, y]) => conv(x, y)) } });
     });
   });
-  return { type: "FeatureCollection", name: by.shp.name.replace(/\.shp$/i, ""), zone, features: feats };
+  const out = { type: "FeatureCollection", name: by.shp.name.replace(/\.shp$/i, ""), zone, features: feats };
+  checkRoutes(out);
+  return out;
 }
-function normalizeGeoJSON(gj, name) {
+const ZONE_EPSG = (c) => c >= 6669 && c <= 6687 ? c - 6668 : c >= 2443 && c <= 2461 ? c - 2442 : c >= 30161 && c <= 30179 ? c - 30160 : null;
+function askZone() {
+  return new Promise((res) => {
+    sheet(`<h2>座標系を選んでください</h2><p>このGeoJSONは平面直角座標（メートル単位）で作られています。何系か選んでください。<br>福島県・栃木県・茨城県・埼玉県・東京都（島しょ部以外）などは <b>9系</b> です。</p>
+    <select id="zSel">${Object.keys(ZONES).map((z) => `<option value="${z}"${z === "9" ? " selected" : ""}>${z}系</option>`).join("")}</select>
+    <div class="row"><button class="big ghost" id="zNo">やめる</button><button class="big navy" id="zOk">この系で読み込む</button></div>`, (r) => {
+      r.querySelector("#zOk").onclick = () => {
+        const z = +r.querySelector("#zSel").value;
+        closeSheet();
+        res(z);
+      };
+      r.querySelector("#zNo").onclick = () => {
+        closeSheet();
+        res(null);
+      };
+    });
+  });
+}
+async function normalizeGeoJSON(gj, name) {
   var _a, _b, _c, _d;
-  const feats = [];
+  const raw = [];
   for (const f of gj.features || []) {
     const p = f.properties || {};
     const route = String((_c = (_b = (_a = p.route) != null ? _a : p["路線番号"]) != null ? _b : p.name) != null ? _c : "?");
-    const dir = (_d = p.dir) != null ? _d : p["上り"] ? "上り" : p["下り"] ? "下り" : "";
-    const g = f.geometry;
+    const up = p["上り"], dn = p["下り"];
+    const dir = (_d = p.dir) != null ? _d : up && String(up).trim() ? "上り" : dn && String(dn).trim() ? "下り" : "";
+    const g = f.geometry || {};
     const lines = g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : [];
-    lines.forEach((c) => feats.push({ type: "Feature", properties: { route, dir }, geometry: { type: "LineString", coordinates: c.map((q) => [q[0], q[1]]) } }));
+    lines.forEach((c) => {
+      if (c && c.length > 1) raw.push({ route, dir, c: c.map((q) => [+q[0], +q[1]]) });
+    });
   }
-  return { type: "FeatureCollection", name: name.replace(/\.(geo)?json$/i, ""), features: feats };
+  if (!raw.length) throw new Error("線データが見つかりません");
+  const [x0, y0] = raw[0].c[0];
+  let conv = null, note = "";
+  if (Math.abs(x0) > 180 || Math.abs(y0) > 90) {
+    const cn = String(gj.crs && gj.crs.properties && gj.crs.properties.name || "");
+    const m = cn.match(/EPSG:+(\d+)/i);
+    let z = m ? ZONE_EPSG(+m[1]) : null;
+    if (!z) {
+      const m2 = cn.match(/Zone[_ ]?(\d+)/i);
+      if (m2) z = +m2[1];
+    }
+    if (m && +m[1] >= 30161 && +m[1] <= 30179) note = "（旧日本測地系のため数百mずれます）";
+    if (!z) z = await askZone();
+    if (!z) throw new Error("読み込みをやめました");
+    const inv = makeTMInverse(...ZONES[z]);
+    conv = (q) => inv(q[0], q[1]);
+    note = `（平面直角 ${z}系から変換）` + note;
+  } else if (x0 >= 20 && x0 <= 46 && y0 >= 120 && y0 <= 155) {
+    conv = (q) => [q[1], q[0]];
+    note = "（緯度経度の順を入れ替え）";
+  }
+  const feats = raw.map((r) => ({ type: "Feature", properties: { route: r.route, dir: r.dir }, geometry: { type: "LineString", coordinates: conv ? r.c.map(conv) : r.c } }));
+  const out = { type: "FeatureCollection", name: name.replace(/\.(geo)?json$/i, ""), features: feats, note };
+  checkRoutes(out);
+  return out;
+}
+function checkRoutes(gj) {
+  let tot = 0;
+  for (const f of gj.features) {
+    const c = f.geometry.coordinates;
+    for (let i = 0; i < c.length; i++) {
+      const [lo, la] = c[i];
+      if (!isFinite(lo) || !isFinite(la) || lo < 120 || lo > 155 || la < 20 || la > 46) throw new Error("路線データの座標が日本の範囲外です。座標系（緯度経度か平面直角か）を確認してください");
+      if (i) tot += hav([c[i - 1][1], c[i - 1][0]], [la, lo]);
+    }
+  }
+  if (tot > 3e6) throw new Error("路線の総延長が長すぎます（" + Math.round(tot / 1e3) + "km）。路線データを分けてください");
+  return tot;
 }
 class Coverage {
   constructor(gj, pieceLen) {
@@ -4021,6 +4110,7 @@ class Coverage {
       let a = pts[i - 1];
       const b = pts[i];
       let seg = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (!isFinite(seg)) continue;
       while (acc + seg >= L2) {
         const t = (L2 - acc) / seg;
         const m = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
@@ -4910,7 +5000,7 @@ async function onRouteFiles(input) {
     fitRoutes();
     closeSheet();
     bc("OK");
-    toast(`路線 ${gj.features.length}本 を読み込みました` + (gj.zone && gj.zone !== "geo" ? `（平面直角 ${gj.zone}系）` : ""));
+    toast(`路線 ${gj.features.length}本 を読み込みました` + (gj.note || (gj.zone && gj.zone !== "geo" ? `（平面直角 ${gj.zone}系）` : "")), 4e3);
   } catch (e) {
     bc("OK");
     toast(e.message || "読み込めませんでした", 4500);
@@ -5331,7 +5421,16 @@ if ("serviceWorker" in navigator) {
 }
 (async () => {
   const saved = await DB.get("kv", "routes").catch(() => null);
-  if (saved && saved.features) routesGJ = saved;
+  if (saved && saved.features) {
+    try {
+      checkRoutes(saved);
+      routesGJ = saved;
+    } catch (e) {
+      await DB.del("kv", "routes").catch(() => {
+      });
+      setTimeout(() => toast("保存されていた路線データに問題があったため削除しました。読み込み直してください", 6e3), 800);
+    }
+  }
   clearedAt = await DB.get("kv", "clearedAt").catch(() => 0) || 0;
   const trips = await DB.all("trips").catch(() => []);
   let open = trips.find((x) => !x.end);
