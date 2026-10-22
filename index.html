@@ -4266,7 +4266,8 @@ function buildCoverage() {
   rebuildCumulative();
 }
 let clearedAt = 0;
-const bufFor = (t) => t.source === "usb" ? S.bufferUsb : S.buffer;
+const isExt = (src) => src === "usb" || src === "drogger";
+const bufFor = (t) => isExt(t.source) ? S.bufferUsb : S.buffer;
 async function rebuildCumulative() {
   const trips = (await DB.all("trips").catch(() => [])).filter((t) => t.start >= clearedAt).sort((a, b) => a.start - b.start);
   cov.reset();
@@ -4278,7 +4279,7 @@ function paintPieces() {
   $("covPct").textContent = Math.floor(cov.summary().pct);
 }
 function bufferNow() {
-  return (trip ? trip.source : S.source) === "usb" ? S.bufferUsb : S.buffer;
+  return isExt(trip ? trip.source : S.source) ? S.bufferUsb : S.buffer;
 }
 let lastFix = null, lastFixAt = 0;
 const Phone = {
@@ -4289,7 +4290,7 @@ const Phone = {
       return;
     }
     this.id = navigator.geolocation.watchPosition(
-      (p) => onFix({ t: p.timestamp || Date.now(), lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, spd: p.coords.speed, hdg: p.coords.heading, src: "スマホ内蔵" }),
+      (p) => onFix({ t: p.timestamp || Date.now(), lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, spd: p.coords.speed, hdg: p.coords.heading, src: S.source === "drogger" ? "DG-PRO1S" : "スマホ内蔵" }),
       (e) => {
         setGnss("bad", e.code === 1 ? "位置情報が未許可" : "GNSS 受信なし");
       },
@@ -4329,9 +4330,11 @@ const Nmea = {
     const r = d + (x - d * 100) / 60;
     return h === "S" || h === "W" ? -r : r;
   },
+  okCount: 0,
   line(line) {
     var _a, _b, _c;
     if (!this.ok(line)) return;
+    this.okCount++;
     const f = line.split("*")[0].split(",");
     const t = f[0].slice(3);
     if (t === "RMC") {
@@ -4359,8 +4362,12 @@ const Usb = {
   port: null,
   reader: null,
   running: false,
+  kind: "",
+  info: "",
+  /* Android の Chrome では USB 機器は WebUSB で扱う（Web Serial は Android では USB に未対応のことがある） */
   async connect() {
-    if ("serial" in navigator) {
+    const android = /Android/i.test(navigator.userAgent);
+    if (!(android && "usb" in navigator) && "serial" in navigator) {
       this.port = await navigator.serial.requestPort();
       await this.port.open({ baudRate: 115200 });
       this.running = true;
@@ -4368,9 +4375,15 @@ const Usb = {
       return "Web Serial";
     }
     if (!("usb" in navigator)) throw new Error("このブラウザはUSB機器に対応していません（Android版 Chrome を使ってください）");
-    const dev = await navigator.usb.requestDevice({ filters: [] });
+    let dev;
+    try {
+      dev = await navigator.usb.requestDevice({ filters: [] });
+    } catch (e) {
+      throw new Error("受信機が見つかりません。ケーブルの差し込み・受信機の電源・端末のOTG設定を確認してください");
+    }
     await dev.open();
     if (!dev.configuration) await dev.selectConfiguration(1);
+    this.info = (dev.manufacturerName || "") + " " + (dev.productName || "") + " [" + dev.vendorId.toString(16).padStart(4, "0") + ":" + dev.productId.toString(16).padStart(4, "0") + "]";
     const ifs = dev.configuration.interfaces;
     let dataIf = null, comm = null, epIn = null;
     for (const it of ifs) {
@@ -4382,21 +4395,69 @@ const Usb = {
         epIn = ep;
       }
     }
-    if (!dataIf) throw new Error("受信機のデータ出力が見つかりません");
+    if (!dataIf) throw new Error("受信機のデータ出力が見つかりません（" + this.info + "）");
+    this.dev = dev;
+    this.dataIf = dataIf.interfaceNumber;
+    this.comm = comm ? comm.interfaceNumber : null;
+    this.kind = dev.vendorId === 1027 ? "ftdi" : dev.vendorId === 4292 ? "cp210x" : "cdc";
     if (comm) {
       try {
         await dev.claimInterface(comm.interfaceNumber);
-        const lc = new Uint8Array([0, 194, 1, 0, 0, 0, 8]);
-        await dev.controlTransferOut({ requestType: "class", recipient: "interface", request: 32, value: 0, index: comm.interfaceNumber }, lc);
-        await dev.controlTransferOut({ requestType: "class", recipient: "interface", request: 34, value: 3, index: comm.interfaceNumber });
       } catch (e) {
       }
     }
     await dev.claimInterface(dataIf.interfaceNumber);
-    this.dev = dev;
+    await this.setBaud(115200);
     this.running = true;
     this._readUsb(epIn.endpointNumber, epIn.packetSize || 64);
-    return "WebUSB";
+    this.autoBaud();
+    return "WebUSB " + this.info;
+  },
+  async setBaud(b) {
+    const d = this.dev;
+    this.baud = b;
+    try {
+      if (this.kind === "ftdi") {
+        await d.controlTransferOut({ requestType: "vendor", recipient: "device", request: 0, value: 0, index: 0 });
+        const div = Math.round(3e6 / b);
+        await d.controlTransferOut({ requestType: "vendor", recipient: "device", request: 3, value: div & 65535, index: 0 });
+        await d.controlTransferOut({ requestType: "vendor", recipient: "device", request: 4, value: 8, index: 0 });
+        await d.controlTransferOut({ requestType: "vendor", recipient: "device", request: 2, value: 0, index: 0 });
+      } else if (this.kind === "cp210x") {
+        await d.controlTransferOut({ requestType: "vendor", recipient: "interface", request: 0, value: 1, index: this.dataIf });
+        const buf = new Uint8Array(4);
+        new DataView(buf.buffer).setUint32(0, b, true);
+        await d.controlTransferOut({ requestType: "vendor", recipient: "interface", request: 30, value: 0, index: this.dataIf }, buf);
+        await d.controlTransferOut({ requestType: "vendor", recipient: "interface", request: 3, value: 2048, index: this.dataIf });
+      } else if (this.comm !== null) {
+        const lc = new Uint8Array(7);
+        new DataView(lc.buffer).setUint32(0, b, true);
+        lc[6] = 8;
+        await d.controlTransferOut({ requestType: "class", recipient: "interface", request: 32, value: 0, index: this.comm }, lc);
+        await d.controlTransferOut({ requestType: "class", recipient: "interface", request: 34, value: 3, index: this.comm });
+      }
+    } catch (e) {
+    }
+  },
+  /* NMEA が読めなければ通信速度を順に切り替える */
+  async autoBaud() {
+    const list = [115200, 38400, 9600, 230400, 57600, 460800, 19200, 4800];
+    let k = 0;
+    for (; ; ) {
+      const c0 = Nmea.okCount;
+      await new Promise((r) => setTimeout(r, 3500));
+      if (!this.running) return;
+      if (Nmea.okCount > c0) {
+        return;
+      }
+      k = (k + 1) % list.length;
+      if (k === 0) {
+        setGnss("bad", "受信機からデータが来ません（" + this.info + "）");
+        return;
+      }
+      setGnss("mid", "受信機の通信速度を確認中… " + list[k] + "bps");
+      await this.setBaud(list[k]);
+    }
   },
   async _readSerial() {
     const dec = new TextDecoder();
@@ -4421,7 +4482,17 @@ const Usb = {
     while (this.running) {
       try {
         const r = await this.dev.transferIn(ep, Math.max(size, 512));
-        if (r.data) Nmea.feed(dec.decode(r.data, { stream: true }));
+        if (r.data && r.data.byteLength) {
+          let u = new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength);
+          if (this.kind === "ftdi") {
+            const out = [];
+            for (let o = 0; o < u.length; o += size) {
+              out.push(...u.slice(o + 2, Math.min(o + size, u.length)));
+            }
+            u = new Uint8Array(out);
+          }
+          Nmea.feed(dec.decode(u, { stream: true }));
+        }
       } catch (e) {
         setGnss("bad", "受信機の接続が切れました");
         this.running = false;
@@ -4499,6 +4570,7 @@ function onFix(fx) {
   lastFixAt = Date.now();
   const lvl = fx.acc <= 5 ? "ok" : fx.acc <= 15 ? "mid" : "bad";
   setGnss(lvl, (lvl === "ok" ? "良好" : lvl === "mid" ? "やや弱い" : "弱い") + " ±" + (fx.acc < 1 ? fx.acc.toFixed(2) : Math.round(fx.acc)) + "m" + (fx.qLabel ? " " + fx.qLabel : ""));
+  if (S.source === "drogger" && fx.acc > 15) setGnss("bad", "DG-PRO1Sの位置が来ていません（Drogger GPSを確認）");
   updateHeading(fx);
   posMarker.setLatLng([fx.lat, fx.lon]);
   accCircle.setLatLng([fx.lat, fx.lon]).setRadius(fx.acc);
@@ -4557,11 +4629,16 @@ document.addEventListener("visibilitychange", () => {
 async function startSource() {
   Phone.stop();
   Demo.stop();
+  if (S.source === "drogger") {
+    Phone.start();
+    toast("Drogger GPS アプリで DG-PRO1S が「接続中」になっているか確認してください", 5e3);
+    return;
+  }
   if (S.source === "usb") {
     if (!Usb.running) {
       try {
         const how = await Usb.connect();
-        toast("受信機を接続しました（" + how + "）");
+        toast("受信機を接続しました（" + how + "）", 4e3);
       } catch (e) {
         toast((e.message || "受信機に接続できませんでした") + "。スマホ内蔵GNSSで記録します", 4500);
         if (trip) trip.source = "phone";
@@ -4637,6 +4714,7 @@ function setUI() {
 }
 let pendingEvent = null;
 $("btnEvent").onclick = () => {
+  if (tapGuard()) return;
   if (!lastFix) {
     toast("まだ位置が取れていません");
     return;
@@ -4712,9 +4790,12 @@ function sheet(html, init) {
   });
   init && init(root);
 }
+let sheetClosedAt = 0;
 function closeSheet() {
+  if ($("sheetHost").innerHTML) sheetClosedAt = Date.now();
   $("sheetHost").innerHTML = "";
 }
+const tapGuard = () => Date.now() - sheetClosedAt < 900;
 function confirmSheet(title, msg, yes, onYes, yesClass = "stop") {
   sheet(`<h2>${title}</h2><p>${msg}</p><div class="row"><button class="big ghost" id="cNo">いいえ</button><button class="big ${yesClass}" id="cYes">${yes}</button></div>`, (r) => {
     r.querySelector("#cNo").onclick = closeSheet;
@@ -4724,8 +4805,11 @@ function confirmSheet(title, msg, yes, onYes, yesClass = "stop") {
     };
   });
 }
-$("btnStart").onclick = startTrip;
-$("btnStop").onclick = () => confirmSheet("巡回を終了しますか？", "終了すると日報を作れます。", "終了する", stopTrip);
+$("btnStart").onclick = () => {
+  if (tapGuard()) return;
+  startTrip();
+};
+$("btnStop").onclick = () => tapGuard() || confirmSheet("巡回を終了しますか？", "終了すると日報を作れます。", "終了する", stopTrip);
 const FOLLOW_BACK_MS = 1e4;
 let followBackT = null;
 function setFollow(v) {
@@ -4861,7 +4945,7 @@ function mergeDay(key, trips) {
     name: uniq(trips.map((t) => t.name)),
     car: uniq(trips.map((t) => t.car)),
     routeName: trips[trips.length - 1].routeName,
-    source: uniq(trips.map((t) => ({ phone: "スマホ内蔵GNSS", usb: "外部受信機（DG-PRO1S）", demo: "デモ走行" })[t.source] || t.source)),
+    source: uniq(trips.map((t) => ({ phone: "スマホ内蔵GNSS", drogger: "DG-PRO1S（Drogger GPS経由）", usb: "外部受信機（直接接続）", demo: "デモ走行" })[t.source] || t.source)),
     drive: trips.reduce((s, t) => s + ((t.end || Date.now()) - t.start), 0)
   };
 }
@@ -4893,8 +4977,8 @@ $("menuBtn").onclick = async () => {
       <label class="f" for="sName">担当者名</label><input type="text" id="sName" value="${escapeHtml(S.name)}">
       <label class="f" for="sCar">車両</label><input type="text" id="sCar" value="${escapeHtml(S.car)}">
       <label class="f" for="sSrc">受信機</label>
-      <select id="sSrc"><option value="phone">スマホ内蔵GNSS</option><option value="usb">外部受信機（DG-PRO1S・USB接続）</option><option value="demo">デモ走行（机上テスト用）</option></select>
-      <div class="hint">外部受信機は試験対応です。初回は端末の「USB機器の許可」を押してください。</div>
+      <select id="sSrc"><option value="phone">スマホ内蔵GNSS</option><option value="drogger">DG-PRO1S（Drogger GPS アプリ経由）</option><option value="usb">外部受信機を直接接続（試験的）</option><option value="demo">デモ走行（机上テスト用）</option></select>
+      <div class="hint">DG-PRO1S は、メーカーの「Drogger GPS」アプリで接続し、Android の「仮の現在地情報アプリ」に Drogger GPS を設定して使います（設定は最初の1回だけ）。</div>
       <label class="f" for="sBuf">巡回判定の幅（スマホ内蔵）m</label><input type="number" id="sBuf" min="2" max="30" value="${S.buffer}">
       <label class="f" for="sBufU">巡回判定の幅（外部受信機）m</label><input type="number" id="sBufU" min="1" max="30" value="${S.bufferUsb}">
       <label class="f" for="sStep">記録間隔 m</label><input type="number" id="sStep" min="1" max="50" value="${S.recStep}">
@@ -5456,6 +5540,9 @@ if ("serviceWorker" in navigator) {
   if (S.source === "demo") {
     if (open) Demo.start();
     else setGnss("mid", "デモ：開始を押すと走ります");
+  } else if (S.source === "drogger") {
+    setGnss("mid", "DG-PRO1S：位置を待っています");
+    Phone.start();
   } else if (S.source === "usb") {
     setGnss("mid", "受信機：開始で接続します");
     if (open) toast("受信機を使うには、メニュー→設定を保存で再接続してください", 4e3);
