@@ -764,7 +764,6 @@ table.cov th:first-child,table.cov td:first-child,table.cov th:nth-child(2),tabl
     <div class="overlay" id="legend">
       <div><span style="background:var(--todo)"></span>未巡回</div>
       <div><span style="background:var(--done)"></span>巡回済</div>
-      <div><span style="background:var(--track);height:3px"></span>走行軌跡</div>
     </div>
   </div>
   <footer>
@@ -3779,11 +3778,19 @@ window.addEventListener("error", function(e) {
 </script>
 <script>"use strict";
 const DEFAULT_ROUTES = { "type": "FeatureCollection", "name": "", "features": [] };
-const DEF = { name: "", car: "", source: "phone", recStep: 1, buffer: 10, bufferUsb: 5, maxAcc: 30, pieceLen: 10, stopSpeed: 0.8, headingUp: false, coverRatio: 50 };
+const DEF = { name: "", car: "", source: "phone", recStep: 1, buffer: 10, bufferUsb: 8, maxAcc: 30, pieceLen: 10, stopSpeed: 0.8, headingUp: false, coverRatio: 50 };
 let S = Object.assign({}, DEF);
 try {
   Object.assign(S, JSON.parse(localStorage.getItem("rp_settings") || "{}"));
 } catch (e) {
+}
+if (!(S.cfgVer >= 2)) {
+  if (S.bufferUsb === 5) S.bufferUsb = 8;
+  S.cfgVer = 2;
+  try {
+    localStorage.setItem("rp_settings", JSON.stringify(S));
+  } catch (e) {
+  }
 }
 function saveSettings() {
   try {
@@ -4133,7 +4140,7 @@ class Coverage {
     out.forEach((p) => {
       let len = 0;
       for (let i = 1; i < p.length; i++) len += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]);
-      this.pieces.push({ fi, route, dir, directional, pts: p, len, visited: false, bins: new Uint8Array(Math.max(1, Math.round(len))), nhit: 0 });
+      this.pieces.push({ fi, route, dir, directional, pts: p, len, visited: false, bins: new Uint8Array(Math.max(1, Math.round(len))), nhit: 0, k: out.indexOf(p), nk: out.length });
     });
   }
   _index(p, i) {
@@ -4220,8 +4227,24 @@ class Coverage {
         p.visited = true;
         hit.push(best.i);
       }
+      this.fill(best.i, hit);
     }
     return hit;
+  }
+  /* 途切れの補完：
+     ・少しでも走った区間が、同じ路線の隣の巡回済区間とつながっていれば巡回済（路線の端・曲がり角で半分に届かない区間）
+     ・前後が巡回済なのに1区間だけ抜けた場合も巡回済（受信の乱れで点が抜けた区間） */
+  fill(i, hit) {
+    const P = this.pieces, same = (a, b) => P[a] && P[b] && P[a].fi === P[b].fi;
+    for (const j of [i - 1, i, i + 1]) {
+      const p = P[j];
+      if (!p || p.visited || !same(i, j)) continue;
+      const l = same(j, j - 1) && P[j - 1].visited, r = same(j, j + 1) && P[j + 1].visited;
+      if (p.nhit > 0 && (l || r) || l && r) {
+        p.visited = true;
+        hit.push(j);
+      }
+    }
   }
   reset() {
     this.lastKey = null;
@@ -4253,7 +4276,7 @@ class Coverage {
     for (const i of this.near(x, y)) {
       const p = this.pieces[i];
       const [d] = this.pieceDist(p, x, y);
-      if (d <= maxD && (!best || d < best.d)) best = { d, route: p.route, dir: p.directional ? p.dir : "" };
+      if (d <= maxD && (!best || d < best.d)) best = { d, route: p.route, dir: p.directional ? p.dir : "", key: p.route + "|" + (p.directional ? p.dir : "") };
     }
     return best;
   }
@@ -4277,7 +4300,7 @@ L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png", { maxZoo
 L.control.zoom({ position: "bottomright" }).addTo(map);
 const css = (k) => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 let routesGJ = DEFAULT_ROUTES, cov = null, pieceLayer = L.layerGroup().addTo(map), pieceLines = [];
-const trackLine = L.polyline([], { color: css("--track"), weight: 3, opacity: 0.9 }).addTo(map);
+const trackLine = L.polyline([], { color: css("--track"), weight: 3, opacity: 0.9 });
 let trackSegs = [[]];
 function setTrack(points) {
   trackSegs = [[]];
@@ -4601,73 +4624,74 @@ function setGnss(level, text) {
   $("gtxt").textContent = text;
 }
 let firstFixLogged = 99;
-const PF = { last: null, vx: 0, vy: 0, run: [], hist: [] };
+const PF = { last: null, vx: 0, vy: 0, pend: null, hist: [] };
 const pfXY = (a, b) => [(b.lon - a.lon) * 111320 * Math.cos(a.lat * D2R), (b.lat - a.lat) * 110540];
-function pfAccept(fx, vx, vy) {
-  PF.last = fx;
-  PF.vx = vx;
-  PF.vy = vy;
-  PF.run = [];
-}
-function posFilter(fx) {
+function pfTake(fx) {
   const L2 = PF.last;
-  let dt = L2 ? (fx.t - L2.t) / 1e3 : 0;
-  if (!L2 || dt > 10 || dt <= 0) {
-    pfAccept(fx, 0, 0);
-    PF.hist = [];
-    return true;
-  }
-  const [dx, dy] = pfXY(L2, fx);
-  const ex = dx - PF.vx * dt, ey = dy - PF.vy * dt;
-  const innov = Math.hypot(ex, ey);
-  const gate = S.source === "drogger" ? Math.max(4, 1.5 * Math.max(fx.acc, 1) + 2) + 1.5 * dt * dt : Math.max(6, 2.5 * Math.max(fx.acc, 1) + 3 + 1.5 * dt * dt);
-  const keep = (x) => {
-    PF.hist.push(x);
-    if (PF.hist.length > 12) PF.hist.shift();
-  };
-  if (innov <= gate) {
+  if (L2) {
+    const dt = Math.max(0.05, (fx.t - L2.t) / 1e3);
+    const [dx, dy] = pfXY(L2, fx);
     let vx = dx / dt, vy = dy / dt;
     const sp = Math.hypot(vx, vy);
     if (sp > 50) {
       vx *= 50 / sp;
       vy *= 50 / sp;
     }
-    pfAccept(fx, PF.vx * 0.5 + vx * 0.5, PF.vy * 0.5 + vy * 0.5);
+    PF.vx = PF.vx * 0.2 + vx * 0.8;
+    PF.vy = PF.vy * 0.2 + vy * 0.8;
+  }
+  PF.last = fx;
+}
+function posFilter(fx) {
+  const L2 = PF.last;
+  const dt = L2 ? (fx.t - L2.t) / 1e3 : 0;
+  const keep = (x) => {
+    PF.hist.push(x);
+    if (PF.hist.length > 12) PF.hist.shift();
+  };
+  if (!L2 || dt > 10 || dt <= 0) {
+    PF.last = fx;
+    PF.vx = PF.vy = 0;
+    PF.pend = null;
+    PF.hist = [];
+    return [fx];
+  }
+  const base = S.source === "drogger" ? Math.max(4, 1.5 * Math.max(fx.acc, 1) + 2) : Math.max(6, 2.5 * Math.max(fx.acc, 1) + 3);
+  const [dx, dy] = pfXY(L2, fx);
+  const innov = Math.hypot(dx - PF.vx * dt, dy - PF.vy * dt), dl = Math.hypot(dx, dy);
+  const spd0 = Math.hypot(PF.vx, PF.vy);
+  if (innov <= base + 2 * dt * dt + 0.4 * spd0 * dt || dl <= base) {
+    PF.pend = null;
+    pfTake(fx);
     keep({ ok: 1, acc: fx.acc });
-    return true;
+    return [fx];
   }
   keep({ ok: 0, acc: fx.acc });
-  PF.run.push(fx);
-  if (PF.run.length >= 4) {
-    let ok = true;
-    for (let i = 1; i < PF.run.length; i++) {
-      const a = PF.run[i - 1], b = PF.run[i];
-      const t = Math.max(0.05, (b.t - a.t) / 1e3);
-      if (Math.hypot(...pfXY(a, b)) / t > 50) {
-        ok = false;
-        break;
-      }
+  const pd = PF.pend;
+  if (pd) {
+    const t2 = Math.max(0.05, (fx.t - pd.t) / 1e3);
+    const sp = Math.hypot(PF.vx, PF.vy);
+    if (Math.hypot(...pfXY(pd, fx)) <= base + Math.max(sp * 1.5, 30) * t2) {
+      PF.pend = null;
+      pfTake(pd);
+      pfTake(fx);
+      return [pd, fx];
     }
-    if (ok) {
-      const a = PF.run[PF.run.length - 2], b = fx;
-      const t = Math.max(0.05, (b.t - a.t) / 1e3);
-      const [x, y] = pfXY(a, b);
-      pfAccept(fx, x / t, y / t);
-      return true;
-    }
-    PF.run = [fx];
   }
+  PF.pend = fx;
   const acc = PF.hist.filter((h) => h.ok).map((h) => h.acc), rej = PF.hist.filter((h) => !h.ok).map((h) => h.acc);
   const med = (v) => {
-    const s = [...v].sort((p, q) => p - q);
-    return s[Math.floor(s.length / 2)];
+    const q = [...v].sort((a, b) => a - b);
+    return q[Math.floor(q.length / 2)];
   };
   if (rej.length >= 4 && acc.length >= 2 && med(rej) < med(acc) * 0.6) {
-    pfAccept(fx, 0, 0);
+    PF.pend = null;
+    PF.last = fx;
+    PF.vx = PF.vy = 0;
     PF.hist = [];
-    return true;
+    return [fx];
   }
-  return false;
+  return [];
 }
 let lastPanAt = 0;
 function onFix(fx) {
@@ -4679,10 +4703,9 @@ function onFix(fx) {
     }, 0);
   }
   lastFixAt = Date.now();
-  if (!posFilter(fx)) {
-    PF.rejected = (PF.rejected || 0) + 1;
-    return;
-  }
+  for (const f of posFilter(fx)) handleFix(f);
+}
+function handleFix(fx) {
   lastFix = fx;
   const lvl = fx.acc <= 5 ? "ok" : fx.acc <= 15 ? "mid" : "bad";
   setGnss(lvl, (lvl === "ok" ? "良好" : lvl === "mid" ? "やや弱い" : "弱い") + " ±" + (fx.acc < 1 ? fx.acc.toFixed(2) : Math.round(fx.acc)) + "m" + (fx.qLabel ? " " + fx.qLabel : ""));
@@ -4717,12 +4740,18 @@ function onFix(fx) {
     if (d <= 200) trip.dist += d;
   }
   trip.lm = p;
-  if (routesGJ.features.length && !cov.nearest(p.lat, p.lon, bufferNow())) {
+  const nr = routesGJ.features.length ? cov.nearest(p.lat, p.lon, bufferNow()) : null;
+  if (routesGJ.features.length && !nr) {
     trip.off = true;
     return;
   }
+  if (nr) p.rk = nr.key;
   const last = pts[pts.length - 1];
-  if (last && (trip.off || hav([last.lat, last.lon], [p.lat, p.lon]) > 200)) p.brk = true;
+  if (last) {
+    const gap = (p.t - last.t) / 1e3, dd = hav([last.lat, last.lon], [p.lat, p.lon]);
+    if (dd > 200) p.brk = true;
+    else if (trip.off && !(last.rk && last.rk === p.rk && gap <= 30 && dd <= 80)) p.brk = true;
+  }
   trip.off = false;
   pts.push(p);
   addTrackPoint(p);
@@ -4784,7 +4813,7 @@ function bc(step) {
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-22f";
+const APP_VER = "2026-10-22h";
 function deviceInfo() {
   const n = navigator;
   return [
