@@ -4831,7 +4831,7 @@ function bc(step) {
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-26a";
+const APP_VER = "2026-10-26b";
 function deviceInfo() {
   const n = navigator;
   return [
@@ -5585,6 +5585,100 @@ const toB64 = (blob) => new Promise((r) => {
   fr.onload = () => r(fr.result.split(",")[1]);
   fr.readAsDataURL(blob);
 });
+async function lastVisitDates() {
+  const trips = (await DB.all("trips").catch(() => [])).filter((t) => t.start >= clearedAt).sort((a, b) => a.start - b.start);
+  const last = {};
+  for (const t of trips) {
+    const c = new Coverage(routesGJ, S.pieceLen);
+    c.add(t.id === (trip && trip.id) ? trip.points : t.points, bufFor(t));
+    c.summary().rows.forEach((r) => {
+      if (r.done > 0) last[r.route + "|" + r.dir] = dayKey(t.start);
+    });
+  }
+  return last;
+}
+async function addAllRoutesSheet(wb, head, box) {
+  const ws = wb.addWorksheet("全路線の巡回状況", { views: [{ state: "frozen", ySplit: 7 }], pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  const sm = cov.summary(), last = await lastVisitDates(), rows = sm.rows, n = rows.length, r0 = 8, r1 = r0 + Math.max(n, 1) - 1;
+  ws.columns = [{ width: 5 }, { width: 10 }, { width: 10 }, { width: 10 }, { width: 11 }, { width: 9 }, { width: 34 }, { width: 9 }, { width: 9 }, { width: 13 }];
+  ws.getCell("A1").value = "全路線の巡回状況（累計）";
+  ws.getCell("A1").font = { bold: true, size: 16 };
+  ws.getCell("A2").value = "集計：" + fmtDate(Date.now()) + " " + fmtTime(Date.now()).slice(0, 5) + " 時点　／　累計の開始：" + (clearedAt ? fmtDate(clearedAt) + "（巡回済をクリアした日）" : "最初の記録から");
+  ws.getCell("A2").font = { size: 9, color: { argb: "FF5B6875" } };
+  const done = rows.filter((r) => r.len && r.done / r.len >= 0.9999).length, part = rows.filter((r) => r.done > 0 && r.done / r.len < 0.9999).length, none = rows.filter((r) => !(r.done > 0)).length;
+  const sumHead = ["区分の数", "完了", "一部", "未巡回", "全体巡回率"];
+  const sumVal = [{ formula: `COUNTA(B${r0}:B${r1})`, result: n }, { formula: `COUNTIF(H${r0}:H${r1},"完了")`, result: done }, { formula: `COUNTIF(H${r0}:H${r1},"一部")`, result: part }, { formula: `COUNTIF(H${r0}:H${r1},"未巡回")`, result: none }, { formula: `IFERROR(SUM(E${r0}:E${r1})/SUM(D${r0}:D${r1}),0)`, result: sm.tot ? sm.done / sm.tot : 0 }];
+  sumHead.forEach((h, i) => {
+    const c = ws.getCell(4, 2 + i);
+    c.value = h;
+    head(c);
+    c.font = { bold: true, size: 9, color: { argb: "FFFFFFFF" } };
+    const v = ws.getCell(5, 2 + i);
+    v.value = sumVal[i];
+    v.font = { bold: true, size: 14 };
+    v.alignment = { horizontal: "center", vertical: "middle" };
+    v.border = box;
+  });
+  ws.getCell(5, 6).numFmt = "0%";
+  ws.getRow(4).height = 26;
+  ws.getRow(5).height = 26;
+  ["No", "路線番号", "区分", "延長(m)", "巡回済(m)", "巡回率", "進み具合（0〜100%）", "状況", "残り(m)", "最終巡回日"].forEach((h, i) => {
+    const c = ws.getCell(7, i + 1);
+    c.value = h;
+    head(c);
+  });
+  ws.getRow(7).height = 30;
+  rows.forEach((x, i) => {
+    const r = r0 + i, p = x.len ? x.done / x.len : 0, st = p >= 0.9999 ? "完了" : p > 0 ? "一部" : "未巡回", lk = last[x.route + "|" + x.dir];
+    const vals = [
+      i + 1,
+      x.route,
+      x.dir || "上下共通",
+      Math.round(x.len),
+      Math.round(x.done),
+      { formula: `IFERROR(E${r}/D${r},0)`, result: p },
+      { formula: `F${r}`, result: p },
+      { formula: `IF(F${r}>=1,"完了",IF(F${r}>0,"一部","未巡回"))`, result: st },
+      { formula: `D${r}-E${r}`, result: Math.round(x.len) - Math.round(x.done) },
+      lk ? keyLabel(lk) : ""
+    ];
+    vals.forEach((v, j) => {
+      const c = ws.getCell(r, j + 1);
+      c.value = v;
+      c.border = box;
+      c.alignment = { vertical: "middle", horizontal: [0, 1, 2, 7, 9].includes(j) ? "center" : "right" };
+    });
+    ws.getCell(r, 6).numFmt = "0%";
+    ws.getCell(r, 7).numFmt = ";;;";
+    ws.getRow(r).height = 20;
+  });
+  if (!n) {
+    ws.getCell(r0, 1).value = "路線データがありません";
+  }
+  ws.addConditionalFormatting({ ref: `G${r0}:G${r1}`, rules: [{
+    type: "dataBar",
+    gradient: false,
+    showValue: false,
+    minLength: 0,
+    maxLength: 100,
+    cfvo: [{ type: "num", value: 0 }, { type: "num", value: 1 }],
+    color: { argb: "FF1565C0" }
+  }] });
+  const stc = (t, bg, fg) => ({ type: "cellIs", operator: "equal", formulae: [`"${t}"`], style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: bg } }, font: { bold: true, color: { argb: fg } } } });
+  ws.addConditionalFormatting({ ref: `H${r0}:H${r1}`, rules: [stc("完了", "FFD7EFDD", "FF1D7A3A"), stc("一部", "FFFFF1CC", "FF8A5A00"), stc("未巡回", "FFFBE3E1", "FFB3261E")] });
+  ws.autoFilter = `A7:J${r1}`;
+  [
+    "使い方",
+    "・100％未満（未完了）だけを見る：「巡回率」の▼ →「数値フィルター」→「指定の値より小さい」→ 100%（または「状況」の▼で「完了」のチェックを外す）",
+    "・残りの多い順に並べる：「残り(m)」の▼ →「降順で並べ替え」",
+    "・横棒は0〜100%の固定目盛り（棒の長さ＝巡回率）。フィルターで絞っても目盛りは変わりません",
+    "・巡回済(m)は、10m区間のうち青（巡回済）になった区間の長さの合計です"
+  ].forEach((t, i) => {
+    const c = ws.getCell(r1 + 2 + i, 1);
+    c.value = t;
+    c.font = { bold: i === 0, size: i ? 10 : 11 };
+  });
+}
 async function buildXlsx(d, tb) {
   await loadExcelJS();
   const wb = new ExcelJS.Workbook();
@@ -5691,6 +5785,7 @@ async function buildXlsx(d, tb) {
     we.getCell(2, 1).value = "異常の記録はありません";
     we.mergeCells(2, 1, 2, 12);
   }
+  await addAllRoutesSheet(wb, head, box);
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
