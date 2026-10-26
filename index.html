@@ -4831,7 +4831,7 @@ function bc(step) {
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-23a";
+const APP_VER = "2026-10-26a";
 function deviceInfo() {
   const n = navigator;
   return [
@@ -5100,7 +5100,7 @@ function fitRoutes() {
   else map.setView(lastFix ? [lastFix.lat, lastFix.lon] : [37.76, 140.47], lastFix ? 16 : 12);
 }
 function welcomeSheet() {
-  sheet(`<h2>はじめに</h2><p>巡回する路線のデータを読み込んでください。会社から届いた路線データ（例：路線_3.geojson）を選びます。<br>一度読み込めば、次からは必要ありません。</p>
+  sheet(`<h2>はじめに</h2><p>巡回する路線のデータを読み込んでください。パソコンからタブレットの「Download」フォルダに入れた路線データ（例：route_3.geojson）を選びます。ファイルを選ぶ画面で「ダウンロード」を開いてください。<br>一度読み込めば、次からは必要ありません。</p>
     <button class="big navy" id="wLoad" style="width:100%">路線データを読み込む</button>
     <div class="row"><button class="big ghost" id="wLater">あとで</button></div>`, (r) => {
     r.querySelector("#wLoad").onclick = () => {
@@ -5192,7 +5192,7 @@ $("menuBtn").onclick = async () => {
     <div class="sec"><b>路線データ</b><p>現在：${escapeHtml(routesGJ.name || "")}（${routesGJ.features.length}本）</p>
       <button class="btn" id="rImp">路線データを読み込む（.geojson）</button>
       <button class="btn" id="rImpShp">Shapeファイルを読み込む（.shp/.dbf/.prj をまとめて選択）</button>
-      <div class="hint">メール・LINE等で受け取った路線データ（.geojson 1つ、または .shp/.dbf/.prj をまとめて）を選んでください。一度読み込めば、このスマホに保存されます。</div></div>
+      <div class="hint">路線データ（.geojson 1つ、または .shp/.dbf/.prj をまとめて）を選びます。パソコンからUSB-Cで「内部ストレージ ＞ Download」に入れたファイルや、メール・LINEで受け取ったファイルが選べます。一度読み込めば、この端末に保存されます。</div></div>
     <div class="sec"><b>端末情報（不具合の連絡用）</b><p style="font-size:14px">${deviceInfo()}</p></div>
     <div class="row"><button class="big ghost" id="mClose">閉じる</button></div>`, (root) => {
     root.querySelector("#sSrc").value = S.source;
@@ -5316,13 +5316,15 @@ async function showReport(key) {
     <button class="btn" id="xShare" hidden>日報を送る（メール・LINE等）</button>
     <button class="btn" id="xGeo">GIS用データを保存（GeoJSON）</button>
     <button class="btn" id="xGpx">軌跡を保存（GPX）</button>
+    <button class="btn" id="xAll">3つまとめて保存（Excel・GeoJSON・GPX）</button>
+    <div class="hint">保存先：タブレットの「内部ストレージ ＞ Download」。パソコンにUSB-Cでつなぐと、パソコンから取り出せます（ファイル名は「道路パト_」で始まります）。</div>
     <div class="row"><button class="big ghost" id="xClose">閉じる</button></div>`, (root) => {
     root.querySelector("#xClose").onclick = closeSheet;
     root.querySelector("#xXlsx").onclick = async () => {
       toast("日報を作成しています…", 8e3);
       const b = await buildXlsx(d, tb);
-      download(b, `巡回日報_${key}.xlsx`);
-      toast("日報を保存しました（ダウンロードフォルダ）");
+      download(b, `道路パト_日報_${key}.xlsx`);
+      toast("日報を保存しました（内部ストレージ ＞ Download）");
     };
     if (navigator.canShare && navigator.canShare({ files: [new File([""], "a.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })] })) {
       const sb = root.querySelector("#xShare");
@@ -5330,16 +5332,24 @@ async function showReport(key) {
       sb.onclick = async () => {
         const b = await buildXlsx(d, tb);
         try {
-          await navigator.share({ files: [new File([b], `巡回日報_${key}.xlsx`, { type: b.type })], title: "巡回日報" });
+          await navigator.share({ files: [new File([b], `道路パト_日報_${key}.xlsx`, { type: b.type })], title: "巡回日報" });
         } catch (e) {
         }
       };
     }
     root.querySelector("#xGeo").onclick = () => {
-      download(new Blob([JSON.stringify(buildGeoJSON(d, tb.dc))], { type: "application/geo+json" }), `巡回結果_${key}.geojson`);
+      download(new Blob([JSON.stringify(buildGeoJSON(d, tb.dc))], { type: "application/geo+json" }), `道路パト_巡回結果_${key}.geojson`);
     };
     root.querySelector("#xGpx").onclick = () => {
-      download(new Blob([buildGpx(d)], { type: "application/gpx+xml" }), `軌跡_${key}.gpx`);
+      download(new Blob([buildGpx(d)], { type: "application/gpx+xml" }), `道路パト_軌跡_${key}.gpx`);
+    };
+    root.querySelector("#xAll").onclick = async () => {
+      toast("3つのファイルを作成しています…", 8e3);
+      const b = await buildXlsx(d, tb);
+      download(b, `道路パト_日報_${key}.xlsx`);
+      setTimeout(() => download(new Blob([JSON.stringify(buildGeoJSON(d, tb.dc))], { type: "application/geo+json" }), `道路パト_巡回結果_${key}.geojson`), 800);
+      setTimeout(() => download(new Blob([buildGpx(d)], { type: "application/gpx+xml" }), `道路パト_軌跡_${key}.gpx`), 1600);
+      setTimeout(() => toast("3つのファイルを Download フォルダに保存しました。「複数ファイルのダウンロード」を聞かれたら「許可」を押してください", 6e3), 1800);
     };
   });
 }
