@@ -1,6 +1,15 @@
 <!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>動作チェック</title>
+<script>
+/* 保存場所の名前を「リポジトリ（市町村）ごと」に分ける。同じ github.io の下に複数の市町村版を置いても記録が混ざらない。
+   patroltest（最初の試験版）は、これまでの記録を引き継ぐため従来の名前のまま */
+var RP_NS=(location.pathname.split("/").filter(Boolean)[0]||""); if(/\.html?$/i.test(RP_NS)) RP_NS="";
+var RP_LEGACY=(!RP_NS || RP_NS==="patroltest");
+function rpKey(k){ return RP_LEGACY?k:k+"@"+RP_NS; }
+var RP_DB=RP_LEGACY?"roadpatrol":"roadpatrol@"+RP_NS;
+</script>
+
 <style>/* required styles */
 
 .leaflet-pane,
@@ -700,10 +709,10 @@ button.del{background:#b3261e;color:#fff;border-color:#b3261e;text-align:center}
 //# sourceMappingURL=leaflet.js.map</script>
 <script>
 var logEl=document.getElementById("log");
-function log(s){ logEl.textContent+=s+"\n"; try{ localStorage.setItem("rp_diag_log",logEl.textContent); }catch(e){} }
-function mark(t){ try{ localStorage.setItem("rp_diag_step",t); }catch(e){} }
+function log(s){ logEl.textContent+=s+"\n"; try{ localStorage.setItem(rpKey("rp_diag_log"),logEl.textContent); }catch(e){} }
+function mark(t){ try{ localStorage.setItem(rpKey("rp_diag_step"),t); }catch(e){} }
 function done(t,ok,msg){ mark(""); var b=document.querySelector('[data-t="'+t+'"]'); b.className=ok?"ok":"ng"; log((ok?"○ ":"× ")+b.textContent+"："+msg); }
-try{ var prev=localStorage.getItem("rp_diag_step"); var pl=localStorage.getItem("rp_diag_log");
+try{ var prev=localStorage.getItem(rpKey("rp_diag_step")); var pl=localStorage.getItem(rpKey("rp_diag_log"));
   if(pl) logEl.textContent=pl;
   if(prev){ var sub={"8a":"（ファイル選択の画面を開いている間）","8b":"（ファイルを選んで戻った直後）","8c":"（中身の読み取り後）","8d":"（解析後）"}[prev]||""; var nm=document.querySelector('[data-t="'+prev.charAt(0)+'"]').textContent+sub; document.getElementById("last").innerHTML='<p style="color:#b3261e;font-weight:700;font-size:17px">前回「'+nm+'」で落ちました。この画面を写真で送ってください。</p>'; log("× "+nm+"：ここで落ちた"); mark(""); }
 }catch(e){}
@@ -711,7 +720,7 @@ log("端末："+((navigator.userAgent.match(/\(([^)]+)\)/)||["",""])[1])+" / Chr
 var map=null;
 var tests={
  "1":function(t){ done(t,true,"OK"); },
- "2":function(t){ var r=indexedDB.open("roadpatrol"); r.onerror=function(){ done(t,false,"開けません"); };
+ "2":function(t){ var r=indexedDB.open(RP_DB); r.onerror=function(){ done(t,false,"開けません"); };
    r.onsuccess=function(){ var d=r.result; var names=[].slice.call(d.objectStoreNames); if(names.indexOf("trips")<0){ done(t,true,"保存データなし"); return; }
      var tx=d.transaction(["trips","kv"],"readonly"); var q=tx.objectStore("trips").getAll(); var rr=tx.objectStore("kv").get("routes");
      tx.oncomplete=function(){ var trips=q.result||[], pts=0, open=0; trips.forEach(function(x){ pts+=(x.points||[]).length; if(!x.end) open++; });
@@ -745,8 +754,8 @@ var tests={
 };
 [].forEach.call(document.querySelectorAll("[data-t]"),function(b){ b.onclick=function(){ var t=b.getAttribute("data-t"); mark(t); if(t==="8"||t==="9"){ try{ tests[t](t); }catch(e){ done(t,false,e.message); } return; } setTimeout(function(){ try{ tests[t](t); }catch(e){ done(t,false,e.message); } },50); }; });
 document.getElementById("wipe").onclick=function(){ var b=this; if(b.dataset.c!=="1"){ b.dataset.c="1"; b.textContent="本当に消す場合は、もう一度押してください"; return; }
-  try{ indexedDB.deleteDatabase("roadpatrol"); }catch(e){}
-  try{ ["rp_settings","rp_bc","rp_diag_step","rp_diag_log"].forEach(function(k){ localStorage.removeItem(k); }); }catch(e){}
+  try{ indexedDB.deleteDatabase(RP_DB); }catch(e){}
+  try{ ["rp_settings","rp_bc","rp_diag_step","rp_diag_log"].forEach(function(k){ localStorage.removeItem(rpKey(k)); }); }catch(e){}
   if(window.caches) caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); });
   if(navigator.serviceWorker) navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); });
   logEl.textContent=""; log("保存データを消しました。アプリを開き直してください。"); b.textContent="消しました"; };

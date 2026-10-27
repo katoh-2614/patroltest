@@ -8,6 +8,15 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>道路パトロール記録</title>
+<script>var RP_NS = location.pathname.split("/").filter(Boolean)[0] || "";
+if (/\.html?$/i.test(RP_NS)) RP_NS = "";
+var RP_LEGACY = !RP_NS || RP_NS === "patroltest";
+function rpKey(k) {
+  return RP_LEGACY ? k : k + "@" + RP_NS;
+}
+var RP_DB = RP_LEGACY ? "roadpatrol" : "roadpatrol@" + RP_NS;
+</script>
+
 <style>/* required styles */
 
 .leaflet-pane,
@@ -3463,7 +3472,7 @@ table.cov th:first-child,table.cov td:first-child,table.cov th:nth-child(2),tabl
 </script>
 <script>var RP_SAFE = /[?&]safe/.test(location.search), RP_ROTATE = false;
 try {
-  RP_ROTATE = !RP_SAFE && JSON.parse(localStorage.getItem("rp_settings") || "{}").headingUp === true;
+  RP_ROTATE = !RP_SAFE && JSON.parse(localStorage.getItem(rpKey("rp_settings")) || "{}").headingUp === true;
 } catch (e) {
 }
 if (RP_ROTATE) {
@@ -3745,12 +3754,12 @@ if (RP_ROTATE) {
 </script>
 <script>if (/[?&]reset/.test(location.search)) {
   try {
-    indexedDB.deleteDatabase("roadpatrol");
+    indexedDB.deleteDatabase(RP_DB);
   } catch (e) {
   }
   try {
     ["rp_settings", "rp_bc"].forEach(function(k) {
-      localStorage.removeItem(k);
+      localStorage.removeItem(rpKey(k));
     });
   } catch (e) {
   }
@@ -3781,20 +3790,20 @@ const DEFAULT_ROUTES = { "type": "FeatureCollection", "name": "", "features": []
 const DEF = { name: "", car: "", source: "phone", recStep: 1, buffer: 10, bufferUsb: 8, maxAcc: 30, pieceLen: 10, stopSpeed: 0.8, headingUp: false, coverRatio: 50, dgMaxAcc: 5 };
 let S = Object.assign({}, DEF);
 try {
-  Object.assign(S, JSON.parse(localStorage.getItem("rp_settings") || "{}"));
+  Object.assign(S, JSON.parse(localStorage.getItem(rpKey("rp_settings")) || "{}"));
 } catch (e) {
 }
 if (!(S.cfgVer >= 2)) {
   if (S.bufferUsb === 5) S.bufferUsb = 8;
   S.cfgVer = 2;
   try {
-    localStorage.setItem("rp_settings", JSON.stringify(S));
+    localStorage.setItem(rpKey("rp_settings"), JSON.stringify(S));
   } catch (e) {
   }
 }
 function saveSettings() {
   try {
-    localStorage.setItem("rp_settings", JSON.stringify(S));
+    localStorage.setItem(rpKey("rp_settings"), JSON.stringify(S));
   } catch (e) {
   }
 }
@@ -3841,7 +3850,7 @@ const DB = /* @__PURE__ */ (() => {
   function open() {
     if (dbp) return dbp;
     dbp = new Promise((res, rej) => {
-      const r = indexedDB.open("roadpatrol", 1);
+      const r = indexedDB.open(RP_DB, 1);
       r.onupgradeneeded = () => {
         const d = r.result;
         d.createObjectStore("trips", { keyPath: "id" });
@@ -4827,15 +4836,15 @@ async function startSource() {
 }
 function bc(step) {
   try {
-    localStorage.setItem("rp_bc", JSON.stringify({ step, t: Date.now() }));
+    localStorage.setItem(rpKey("rp_bc"), JSON.stringify({ step, t: Date.now() }));
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-26b";
+const APP_VER = "2026-10-27a";
 function deviceInfo() {
   const n = navigator;
   return [
-    "アプリの版：" + APP_VER,
+    "アプリの版：" + APP_VER + (RP_NS ? "（" + RP_NS + "）" : ""),
     "端末：" + (n.userAgent.match(/\(([^)]+)\)/) || ["", ""])[1],
     "Chrome：" + (n.userAgent.match(/Chrome\/([\d.]+)/) || ["", "不明"])[1],
     "メモリ：" + (n.deviceMemory ? n.deviceMemory + "GB程度" : "不明"),
@@ -5162,7 +5171,7 @@ function dayTable(day) {
 }
 $("menuBtn").onclick = async () => {
   const days = [...(await loadDays()).entries()].reverse();
-  sheet(`<h2>メニュー <small style="font-size:14px;color:var(--muted);font-weight:400">版 ${APP_VER}</small></h2>
+  sheet(`<h2>メニュー <small style="font-size:14px;color:var(--muted);font-weight:400">版 ${APP_VER}${RP_NS ? " ／ " + RP_NS : ""}</small></h2>
     <div class="sec" style="border:0;margin:0;padding:0"><b>日付ごとの巡回記録</b>
       ${days.length ? days.slice(0, 30).map(([k, ts]) => {
     const d = mergeDay(k, ts);
@@ -5792,7 +5801,7 @@ async function buildXlsx(d, tb) {
 function crashCheck() {
   let b = null;
   try {
-    b = JSON.parse(localStorage.getItem("rp_bc") || "null");
+    b = JSON.parse(localStorage.getItem(rpKey("rp_bc")) || "null");
   } catch (e) {
   }
   if (!b || b.step === "OK" || Date.now() - b.t > 30 * 6e4) return false;
