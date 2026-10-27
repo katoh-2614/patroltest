@@ -1,6 +1,7 @@
 {
-  "name": "道路パトロール記録",
-  "short_name": "道路パト",
+  "id": "/patroltest/",
+  "name": "道路パトロール記録（試験）",
+  "short_name": "道路パト試験",
   "description": "道路パトロールの走行軌跡・巡回状況・異常箇所を記録します",
   "lang": "ja",
   "start_url": "./",
@@ -10,8 +11,23 @@
   "background_color": "#16324f",
   "theme_color": "#16324f",
   "icons": [
-    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }
