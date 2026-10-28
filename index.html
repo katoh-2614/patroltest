@@ -4840,7 +4840,7 @@ function bc(step) {
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-28a";
+const APP_VER = "2026-10-28e";
 function deviceInfo() {
   const n = navigator;
   return [
@@ -5787,6 +5787,10 @@ async function buildXlsx(d, tb) {
   ws.getCell(r1 + 24, 1).value = "※背景は国土地理院の地理院タイル（淡色地図）を使用。位置はGNSS測位によるもので誤差を含みます。走行軌跡はGPXファイルで別途保存できます。";
   ws.getCell(r1 + 24, 1).font = { size: 9, color: { argb: "FF5B6875" } };
   await addAllRoutesSheet(wb, head, box);
+  wb.eachSheet((w) => {
+    w.properties.dyDescent = 0.25;
+    if (!w.views || !w.views.length) w.views = [{ state: "normal", zoomScale: 100, zoomScaleNormal: 100 }];
+  });
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
@@ -5807,8 +5811,9 @@ function loadTileU(url, z, x, y) {
     im.src = url.replace("{z}", z).replace("{x}", x).replace("{y}", y);
   });
 }
+const MAP_CM = 16;
 async function drawSiteMap(e, useTiles = true) {
-  const W = 900, H = 583, z = 18, groundW = 0.171 * 2500;
+  const W = 900, H = 583, z = 18, groundW = MAP_CM / 100 * 2500;
   const mpp = 156543.03392 * Math.cos(e.lat * D2R) / 2 ** z, k = groundW / W > 0 ? mpp / (groundW / W) : 1;
   const cv = document.createElement("canvas");
   cv.width = W;
@@ -5976,12 +5981,12 @@ async function buildCardXlsx(d) {
     if (o.bd !== false) for (let k = c1; k <= c2; k++) cs.getCell(r, k).border = box;
     return c;
   };
-  const COLPX = 54, ROWPX = 20;
-  const placeImg = (id, r1, c1, nr, nc, iw, ih) => {
-    const aw = nc * COLPX - 8, ah = nr * ROWPX - 8, s = Math.min(aw / iw, ah / ih), w = iw * s, h = ih * s;
-    const EMU = 9525, at = (px, unit, base) => ({ n: base + Math.floor(px / unit), o: Math.round(px % unit * EMU) });
-    const L0 = at(4 + (aw - w) / 2, COLPX, c1 - 1), T0 = at(4 + (ah - h) / 2, ROWPX, r1 - 1), R0 = at(4 + (aw - w) / 2 + w, COLPX, c1 - 1), B0 = at(4 + (ah - h) / 2 + h, ROWPX, r1 - 1);
-    cs.addImage(id, { tl: { nativeCol: L0.n, nativeColOff: L0.o, nativeRow: T0.n, nativeRowOff: T0.o }, br: { nativeCol: R0.n, nativeColOff: R0.o, nativeRow: B0.n, nativeRowOff: B0.o }, editAs: "twoCell" });
+  const COLPX = 54, ROWPX = 20, EMU = 9525;
+  const placeImg = (id, r1, c1, nr, nc, iw, ih, fit = 0.9) => {
+    const aw = nc * COLPX, ah = nr * ROWPX, s = Math.min(aw * fit / iw, ah * fit / ih), w = iw * s, h = ih * s;
+    const at = (px, unit, base) => ({ n: base + Math.floor(px / unit), o: Math.round(px % unit * EMU) });
+    const L0 = at((aw - w) / 2, COLPX, c1 - 1), T0 = at(4, ROWPX, r1 - 1);
+    cs.addImage(id, { tl: { nativeCol: L0.n, nativeColOff: L0.o, nativeRow: T0.n, nativeRowOff: T0.o }, ext: { width: Math.round(w), height: Math.round(h) }, editAs: "oneCell" });
   };
   for (let i = 0; i < ev.length; i++) {
     const e = ev[i], s = cardTop(i), lr = 5 + i, ref = (col) => `'${LS}'!${col}${lr}`;
@@ -6017,15 +6022,18 @@ async function buildCardXlsx(d) {
     put(r, 1, 12, "位置図（縮尺 約1/2,500・A4を100%で印刷した場合）　赤い印＝該当箇所", { font: { bold: true, size: 10 }, fill: TINT });
     H(1, 16);
     r++;
-    H(21, 15);
+    H(21, 16.5);
     const mp = await drawSiteMap(e);
     const mb = await new Promise((res) => mp.toBlob(res, "image/png"));
-    placeImg(wb.addImage({ base64: await toB64(mb), extension: "png" }), r, 1, 21, 12, mp.width, mp.height);
+    {
+      const wpx = MAP_CM / 2.54 * 96, hpx = wpx * mp.height / mp.width;
+      cs.addImage(wb.addImage({ base64: await toB64(mb), extension: "png" }), { tl: { nativeCol: 0, nativeColOff: 54e3, nativeRow: r - 1, nativeRowOff: 36e3 }, ext: { width: Math.round(wpx), height: Math.round(hpx) }, editAs: "oneCell" });
+    }
     r += 21;
     put(r, 1, 12, "写真（最大3枚）", { font: { bold: true, size: 10 }, fill: TINT });
     H(1, 16);
     r++;
-    H(8, 15);
+    H(8, 16.5);
     const ph = evPhotos(e);
     for (let j = 0; j < 3; j++) {
       const c1 = 1 + j * 4, b = j < ph.length ? await DB.get("photos", ph[j]).catch(() => null) : null;
@@ -6068,6 +6076,10 @@ async function buildCardXlsx(d) {
     if (i < ev.length - 1) cs.getRow(r - 1).addPageBreak();
   }
   cs.pageSetup.printArea = `A1:L${cardTop(ev.length) - 1}`;
+  wb.eachSheet((w) => {
+    w.properties.dyDescent = 0.25;
+    if (!w.views || !w.views.length) w.views = [{ state: "normal", zoomScale: 100, zoomScaleNormal: 100 }];
+  });
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
