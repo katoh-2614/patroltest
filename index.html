@@ -4840,7 +4840,7 @@ function bc(step) {
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-27a";
+const APP_VER = "2026-10-28a";
 function deviceInfo() {
   const n = navigator;
   return [
@@ -5322,26 +5322,45 @@ async function showReport(key) {
     ${tb.rows.length ? `<div style="overflow-x:auto"><table class="cov"><tr><th>路線</th><th>区分</th><th>延長m</th><th>当日m</th><th>累計</th></tr>
     ${tb.rows.map((r) => `<tr><td>${escapeHtml(r.route)}</td><td>${r.dir || "上下共通"}</td><td>${Math.round(r.len)}</td><td>${Math.round(r.day)}</td><td><span class="pill" style="background:${r.cumPct >= 90 ? "var(--ok)" : "var(--mid)"}">${r.cumPct.toFixed(0)}%</span></td></tr>`).join("")}</table></div>` : ""}
     <button class="btn" id="xXlsx" style="background:var(--navy);color:#fff;border-color:var(--navy);min-height:64px;font-size:21px">日報（Excel）を保存</button>
+    ${d.events.length ? `<div class="hint" style="margin-top:-4px">異常が ${d.events.length} 件あるため、「異常箇所カード（Excel）」も一緒に保存されます。</div>` : ""}
     <button class="btn" id="xShare" hidden>日報を送る（メール・LINE等）</button>
     <button class="btn" id="xGeo">GIS用データを保存（GeoJSON）</button>
     <button class="btn" id="xGpx">軌跡を保存（GPX）</button>
-    <button class="btn" id="xAll">3つまとめて保存（Excel・GeoJSON・GPX）</button>
+    <button class="btn" id="xAll">まとめて保存（Excel・GeoJSON・GPX）</button>
     <div class="hint">保存先：タブレットの「内部ストレージ ＞ Download」。パソコンにUSB-Cでつなぐと、パソコンから取り出せます（ファイル名は「道路パト_」で始まります）。</div>
     <div class="row"><button class="big ghost" id="xClose">閉じる</button></div>`, (root) => {
     root.querySelector("#xClose").onclick = closeSheet;
-    root.querySelector("#xXlsx").onclick = async () => {
-      toast("日報を作成しています…", 8e3);
+    const cardName = `道路パト_異常箇所カード_${key}.xlsx`, hasEv = d.events.length > 0;
+    const saveXlsx = async () => {
+      toast(hasEv ? "日報と異常箇所カードを作成しています…" : "日報を作成しています…", 15e3);
       const b = await buildXlsx(d, tb);
       download(b, `道路パト_日報_${key}.xlsx`);
-      toast("日報を保存しました（内部ストレージ ＞ Download）");
+      if (hasEv) {
+        const c = await buildCardXlsx(d);
+        await new Promise((r) => setTimeout(r, 800));
+        download(c, cardName);
+      }
+    };
+    root.querySelector("#xXlsx").onclick = async () => {
+      try {
+        await saveXlsx();
+        toast(hasEv ? "日報と異常箇所カード（2ファイル）を保存しました（内部ストレージ ＞ Download）。「複数ファイルのダウンロード」を聞かれたら「許可」を押してください" : "日報を保存しました（内部ストレージ ＞ Download）", 6e3);
+      } catch (e) {
+        toast("保存できませんでした：" + e.message, 6e3);
+      }
     };
     if (navigator.canShare && navigator.canShare({ files: [new File([""], "a.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })] })) {
       const sb = root.querySelector("#xShare");
       sb.hidden = false;
       sb.onclick = async () => {
         const b = await buildXlsx(d, tb);
+        const fs = [new File([b], `道路パト_日報_${key}.xlsx`, { type: b.type })];
+        if (hasEv) {
+          const c = await buildCardXlsx(d);
+          fs.push(new File([c], cardName, { type: c.type }));
+        }
         try {
-          await navigator.share({ files: [new File([b], `道路パト_日報_${key}.xlsx`, { type: b.type })], title: "巡回日報" });
+          await navigator.share({ files: fs, title: "巡回日報" });
         } catch (e) {
         }
       };
@@ -5353,12 +5372,14 @@ async function showReport(key) {
       download(new Blob([buildGpx(d)], { type: "application/gpx+xml" }), `道路パト_軌跡_${key}.gpx`);
     };
     root.querySelector("#xAll").onclick = async () => {
-      toast("3つのファイルを作成しています…", 8e3);
-      const b = await buildXlsx(d, tb);
-      download(b, `道路パト_日報_${key}.xlsx`);
+      try {
+        await saveXlsx();
+      } catch (e) {
+        toast("Excelを作成できませんでした：" + e.message, 6e3);
+      }
       setTimeout(() => download(new Blob([JSON.stringify(buildGeoJSON(d, tb.dc))], { type: "application/geo+json" }), `道路パト_巡回結果_${key}.geojson`), 800);
       setTimeout(() => download(new Blob([buildGpx(d)], { type: "application/gpx+xml" }), `道路パト_軌跡_${key}.gpx`), 1600);
-      setTimeout(() => toast("3つのファイルを Download フォルダに保存しました。「複数ファイルのダウンロード」を聞かれたら「許可」を押してください", 6e3), 1800);
+      setTimeout(() => toast((hasEv ? "4つ" : "3つ") + "のファイルを Download フォルダに保存しました。「複数ファイルのダウンロード」を聞かれたら「許可」を押してください", 6e3), 1800);
     };
   });
 }
@@ -5765,36 +5786,288 @@ async function buildXlsx(d, tb) {
   ws.addImage(wb.addImage({ base64: await toB64(ovB), extension: "png" }), { tl: { col: 0, row: r1 }, ext: { width: 640, height: 427 } });
   ws.getCell(r1 + 24, 1).value = "※背景は国土地理院の地理院タイル（淡色地図）を使用。位置はGNSS測位によるもので誤差を含みます。走行軌跡はGPXファイルで別途保存できます。";
   ws.getCell(r1 + 24, 1).font = { size: 9, color: { argb: "FF5B6875" } };
-  const we = wb.addWorksheet("異常箇所", { pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
-  we.columns = [{ header: "No", width: 5 }, { header: "時刻", width: 10 }, { header: "種別", width: 16 }, { header: "路線", width: 9 }, { header: "緯度", width: 12 }, { header: "経度", width: 13 }, { header: "精度(m)", width: 8 }, { header: "メモ", width: 24 }, { header: "地図", width: 8 }, { header: "写真1", width: 30 }, { header: "写真2", width: 30 }, { header: "写真3", width: 30 }];
-  we.getRow(1).eachCell(head);
-  we.getRow(1).height = 24;
-  for (let i = 0; i < d.events.length; i++) {
-    const e = d.events[i], r = i + 2;
-    const row = we.getRow(r);
-    row.values = [e.no, fmtTime(e.t), e.type, e.route ? e.route + (e.dir ? "(" + e.dir + ")" : "") : "路線外", +e.lat.toFixed(7), +e.lon.toFixed(7), +e.acc.toFixed(1), e.memo, { text: "地図", hyperlink: `https://maps.gsi.go.jp/#18/${e.lat.toFixed(6)}/${e.lon.toFixed(6)}/` }];
-    const ph = evPhotos(e);
-    row.height = ph.length ? 130 : 24;
-    for (let ci = 1; ci <= 12; ci++) {
-      const cl = we.getCell(r, ci);
-      cl.border = box;
-      cl.alignment = { vertical: "middle", wrapText: true, horizontal: ci <= 4 ? "center" : void 0 };
-    }
-    we.getCell(r, 9).font = { color: { argb: "FF1565C0" }, underline: true };
-    for (let k2 = 0; k2 < ph.length && k2 < 3; k2++) {
-      const b = await DB.get("photos", ph[k2]).catch(() => null);
-      if (!b) continue;
-      const small = await resizeImage(b, 640, 0.8);
-      const bmp = await createImageBitmap(small);
-      const k = Math.min(205 / bmp.width, 165 / bmp.height);
-      we.addImage(wb.addImage({ base64: await toB64(small), extension: "jpeg" }), { tl: { col: 9.05 + k2, row: r - 1 + 0.04 }, ext: { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) } });
-    }
-  }
-  if (!d.events.length) {
-    we.getCell(2, 1).value = "異常の記録はありません";
-    we.mergeCells(2, 1, 2, 12);
-  }
   await addAllRoutesSheet(wb, head, box);
+  const buf = await wb.xlsx.writeBuffer();
+  return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+const SITE_TILE = "https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png";
+function loadTileU(url, z, x, y) {
+  return new Promise((res) => {
+    const im = new Image();
+    im.crossOrigin = "anonymous";
+    const t = setTimeout(() => res(null), 8e3);
+    im.onload = () => {
+      clearTimeout(t);
+      res(im);
+    };
+    im.onerror = () => {
+      clearTimeout(t);
+      res(null);
+    };
+    im.src = url.replace("{z}", z).replace("{x}", x).replace("{y}", y);
+  });
+}
+async function drawSiteMap(e, useTiles = true) {
+  const W = 900, H = 583, z = 18, groundW = 0.171 * 2500;
+  const mpp = 156543.03392 * Math.cos(e.lat * D2R) / 2 ** z, k = groundW / W > 0 ? mpp / (groundW / W) : 1;
+  const cv = document.createElement("canvas");
+  cv.width = W;
+  cv.height = H;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#f4f1ea";
+  g.fillRect(0, 0, W, H);
+  const cx = wx(e.lon, z), cy = wy(e.lat, z);
+  let bg = false;
+  if (useTiles) {
+    const x0 = Math.floor((cx - W / 2 / k) / 256), x1 = Math.floor((cx + W / 2 / k) / 256), y0 = Math.floor((cy - H / 2 / k) / 256), y1 = Math.floor((cy + H / 2 / k) / 256), jobs = [];
+    for (let tx = x0; tx <= x1; tx++) for (let ty = y0; ty <= y1; ty++) jobs.push(loadTileU(SITE_TILE, z, tx, ty).then((im) => ({ im, tx, ty })));
+    for (const { im, tx, ty } of await Promise.all(jobs)) {
+      if (!im) continue;
+      bg = true;
+      g.drawImage(im, W / 2 + (tx * 256 - cx) * k, H / 2 + (ty * 256 - cy) * k, 256 * k + 1, 256 * k + 1);
+    }
+  }
+  if (!bg) {
+    g.fillStyle = "#8a94a0";
+    g.font = "18px sans-serif";
+    g.textAlign = "center";
+    g.fillText("背景地図を取得できませんでした（通信できる場所で日報を保存し直してください）", W / 2, 40);
+    g.textAlign = "left";
+  }
+  const X = W / 2, Y = H / 2;
+  g.lineCap = "round";
+  g.strokeStyle = "#ffffff";
+  g.lineWidth = 9;
+  g.beginPath();
+  g.arc(X, Y, 17, 0, 7);
+  g.stroke();
+  g.strokeStyle = "#e00000";
+  g.lineWidth = 4;
+  g.beginPath();
+  g.arc(X, Y, 17, 0, 7);
+  g.stroke();
+  g.strokeStyle = "#ffffff";
+  g.lineWidth = 7;
+  g.beginPath();
+  g.moveTo(X - 30, Y);
+  g.lineTo(X + 30, Y);
+  g.moveTo(X, Y - 30);
+  g.lineTo(X, Y + 30);
+  g.stroke();
+  g.strokeStyle = "#e00000";
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(X - 30, Y);
+  g.lineTo(X + 30, Y);
+  g.moveTo(X, Y - 30);
+  g.lineTo(X, Y + 30);
+  g.stroke();
+  const lab = "No." + e.no;
+  g.font = "bold 20px sans-serif";
+  const tw = g.measureText(lab).width;
+  g.fillStyle = "#e00000";
+  g.fillRect(X + 20, Y - 50, tw + 14, 28);
+  g.fillStyle = "#fff";
+  g.fillText(lab, X + 27, Y - 29);
+  const sb = 50 / (groundW / W);
+  g.fillStyle = "rgba(255,255,255,0.8)";
+  g.fillRect(10, H - 38, sb + 80, 30);
+  g.fillStyle = "#14202b";
+  g.fillRect(20, H - 26, sb, 6);
+  g.font = "16px sans-serif";
+  g.fillText("50 m", 28 + sb, H - 17);
+  g.fillStyle = "rgba(255,255,255,0.8)";
+  g.fillRect(W - 50, H - 90, 40, 52);
+  g.fillStyle = "#14202b";
+  g.beginPath();
+  g.moveTo(W - 30, H - 84);
+  g.lineTo(W - 40, H - 56);
+  g.lineTo(W - 20, H - 56);
+  g.closePath();
+  g.fill();
+  g.font = "bold 16px sans-serif";
+  g.fillText("N", W - 35, H - 40);
+  const at = bg ? "出典：地理院タイル（標準地図）国土地理院" : "背景地図なし";
+  g.font = "14px sans-serif";
+  const aw = g.measureText(at).width;
+  g.fillStyle = "rgba(255,255,255,0.8)";
+  g.fillRect(W - aw - 20, H - 28, aw + 14, 22);
+  g.fillStyle = "#5b6875";
+  g.fillText(at, W - aw - 13, H - 12);
+  if (bg) {
+    try {
+      g.getImageData(0, 0, 1, 1);
+    } catch (err) {
+      return drawSiteMap(e, false);
+    }
+  }
+  return cv;
+}
+const GSI_URL = (e) => `https://maps.gsi.go.jp/#18/${e.lat.toFixed(6)}/${e.lon.toFixed(6)}/`;
+const STATUS = [["未対応", "FFFBE3E1", "FFB3261E"], ["業者手配済", "FFFFF1CC", "FF8A5A00"], ["対応中", "FFDCEBFA", "FF0D47A1"], ["完了", "FFD7EFDD", "FF1D7A3A"]];
+async function buildCardXlsx(d) {
+  await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "道路パトロール記録";
+  wb.calcProperties.fullCalcOnLoad = true;
+  const thin = { style: "thin", color: { argb: "FF9AA5B1" } }, box = { top: thin, left: thin, bottom: thin, right: thin };
+  const NAVY = { type: "pattern", pattern: "solid", fgColor: { argb: "FF16324F" } }, TINT = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEEF2F6" } };
+  const stRules = () => STATUS.map(([t, bg, fg]) => ({ type: "cellIs", operator: "equal", formulae: [`"${t}"`], style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: bg } }, font: { bold: true, color: { argb: fg } } } }));
+  const ev = d.events, LS = "修繕管理一覧", CS = "異常箇所カード";
+  const ls = wb.addWorksheet(LS, { views: [{ state: "frozen", ySplit: 4 }], pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
+  ls.getCell("A1").value = "異常箇所 修繕管理一覧　" + keyLabel(d.key);
+  ls.getCell("A1").font = { bold: true, size: 16 };
+  ls.getCell("A2").value = "「対応状況」「担当業者」「対応予定日」「完了日」「備考」はこの表に入力してください（青字の欄）。異常箇所カードにも反映されます。";
+  ls.getCell("A2").font = { size: 9, color: { argb: "FF5B6875" } };
+  const hd = ["No", "発見日時", "種別", "路線", "緯度", "経度", "対応状況", "担当業者", "対応予定日", "完了日", "備考", "地理院地図", "カード"], wd = [5, 17, 14, 10, 14, 14, 12, 14, 12, 12, 24, 10, 8];
+  ls.columns = wd.map((w) => ({ width: w }));
+  hd.forEach((h, i) => {
+    const c = ls.getCell(4, i + 1);
+    c.value = h;
+    c.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    c.fill = NAVY;
+    c.alignment = { horizontal: "center", vertical: "middle" };
+    c.border = box;
+  });
+  ls.getRow(4).height = 22;
+  const CARD_ROWS = 44, cardTop = (i) => 1 + i * CARD_ROWS;
+  ev.forEach((e, i) => {
+    const r = 5 + i;
+    const vals = [
+      e.no,
+      fmtDate(e.t) + " " + fmtTime(e.t).slice(0, 5),
+      e.type,
+      e.route ? e.route + (e.dir ? "(" + e.dir + ")" : "") : "路線外",
+      +e.lat.toFixed(7),
+      +e.lon.toFixed(7),
+      "未対応",
+      "",
+      "",
+      "",
+      "",
+      { text: "地図", hyperlink: GSI_URL(e) },
+      { formula: `HYPERLINK("#'${CS}'!A${cardTop(i)}","カード")`, result: "カード" }
+    ];
+    vals.forEach((v, j) => {
+      const c = ls.getCell(r, j + 1);
+      c.value = v;
+      c.border = box;
+      c.alignment = { vertical: "middle", horizontal: j === 10 ? "left" : "center" };
+    });
+    for (let j = 7; j <= 11; j++) ls.getCell(r, j).font = { color: { argb: "FF0000FF" } };
+    ls.getCell(r, 5).numFmt = ls.getCell(r, 6).numFmt = "0.0000000";
+    ls.getCell(r, 9).numFmt = ls.getCell(r, 10).numFmt = "yyyy/mm/dd";
+    ls.getCell(r, 12).font = ls.getCell(r, 13).font = { color: { argb: "FF1565C0" }, underline: true };
+    ls.getCell(r, 7).dataValidation = { type: "list", allowBlank: true, formulae: ['"' + STATUS.map((x) => x[0]).join(",") + '"'] };
+    ls.getRow(r).height = 20;
+  });
+  const last = 4 + Math.max(1, ev.length);
+  ls.addConditionalFormatting({ ref: `G5:G${last}`, rules: stRules() });
+  ls.autoFilter = `A4:M${last}`;
+  const cs = wb.addWorksheet(CS, { pageSetup: { paperSize: 9, orientation: "portrait", scale: 100, horizontalCentered: true, margins: { left: 0.55, right: 0.55, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 } } });
+  cs.columns = Array.from({ length: 12 }, () => ({ width: 7 }));
+  const put = (r, c1, c2, v, o = {}) => {
+    if (c2 > c1) cs.mergeCells(r, c1, r, c2);
+    const c = cs.getCell(r, c1);
+    c.value = v;
+    c.font = o.font || { size: 10 };
+    c.alignment = { horizontal: o.al || "left", vertical: "middle", wrapText: true };
+    if (o.fill) c.fill = o.fill;
+    if (o.bd !== false) for (let k = c1; k <= c2; k++) cs.getCell(r, k).border = box;
+    return c;
+  };
+  const COLPX = 54, ROWPX = 20;
+  const placeImg = (id, r1, c1, nr, nc, iw, ih) => {
+    const aw = nc * COLPX - 8, ah = nr * ROWPX - 8, s = Math.min(aw / iw, ah / ih), w = iw * s, h = ih * s;
+    const EMU = 9525, at = (px, unit, base) => ({ n: base + Math.floor(px / unit), o: Math.round(px % unit * EMU) });
+    const L0 = at(4 + (aw - w) / 2, COLPX, c1 - 1), T0 = at(4 + (ah - h) / 2, ROWPX, r1 - 1), R0 = at(4 + (aw - w) / 2 + w, COLPX, c1 - 1), B0 = at(4 + (ah - h) / 2 + h, ROWPX, r1 - 1);
+    cs.addImage(id, { tl: { nativeCol: L0.n, nativeColOff: L0.o, nativeRow: T0.n, nativeRowOff: T0.o }, br: { nativeCol: R0.n, nativeColOff: R0.o, nativeRow: B0.n, nativeRowOff: B0.o }, editAs: "twoCell" });
+  };
+  for (let i = 0; i < ev.length; i++) {
+    const e = ev[i], s = cardTop(i), lr = 5 + i, ref = (col) => `'${LS}'!${col}${lr}`;
+    let r = s;
+    const H = (n, h) => {
+      for (let k = 0; k < n; k++) cs.getRow(r + k).height = h;
+    };
+    put(r, 1, 12, `異常箇所カード　No.${e.no}　${e.type}`, { font: { bold: true, size: 15, color: { argb: "FFFFFFFF" } }, fill: NAVY, bd: false });
+    H(1, 26);
+    r++;
+    put(r, 1, 12, "道路パトロール記録" + (RP_NS && !RP_LEGACY ? "（" + RP_NS + "）" : "") + "　巡回日 " + keyLabel(d.key), { font: { size: 9, color: { argb: "FF5B6875" } }, bd: false });
+    H(1, 14);
+    r++;
+    [
+      ["発見日時", fmtDate(e.t) + " " + fmtTime(e.t).slice(0, 5), "路線", e.route ? e.route + (e.dir ? "(" + e.dir + ")" : "") : "路線外"],
+      ["種別", e.type, "緯度・経度", e.lat.toFixed(7) + ", " + e.lon.toFixed(7)],
+      ["担当者", d.name || "", "位置の精度", "±" + (+e.acc).toFixed(1) + " m"]
+    ].forEach(([a, b, c, v]) => {
+      put(r, 1, 2, a, { font: { bold: true, size: 10 }, fill: TINT, al: "center" });
+      put(r, 3, 6, b);
+      put(r, 7, 8, c, { font: { bold: true, size: 9 }, fill: TINT, al: "center" });
+      put(r, 9, 12, v);
+      H(1, 17);
+      r++;
+    });
+    put(r, 1, 2, "メモ", { font: { bold: true, size: 10 }, fill: TINT, al: "center" });
+    put(r, 3, 12, e.memo || "");
+    H(1, 24);
+    r++;
+    put(r, 1, 12, { text: "地理院地図（パソコンで開く）：" + GSI_URL(e), hyperlink: GSI_URL(e) }, { font: { size: 9, color: { argb: "FF1565C0" }, underline: true }, bd: false });
+    H(1, 14);
+    r++;
+    put(r, 1, 12, "位置図（縮尺 約1/2,500・A4を100%で印刷した場合）　赤い印＝該当箇所", { font: { bold: true, size: 10 }, fill: TINT });
+    H(1, 16);
+    r++;
+    H(21, 15);
+    const mp = await drawSiteMap(e);
+    const mb = await new Promise((res) => mp.toBlob(res, "image/png"));
+    placeImg(wb.addImage({ base64: await toB64(mb), extension: "png" }), r, 1, 21, 12, mp.width, mp.height);
+    r += 21;
+    put(r, 1, 12, "写真（最大3枚）", { font: { bold: true, size: 10 }, fill: TINT });
+    H(1, 16);
+    r++;
+    H(8, 15);
+    const ph = evPhotos(e);
+    for (let j = 0; j < 3; j++) {
+      const c1 = 1 + j * 4, b = j < ph.length ? await DB.get("photos", ph[j]).catch(() => null) : null;
+      if (b) {
+        const small = await resizeImage(b, 800, 0.8), bmp = await createImageBitmap(small);
+        placeImg(wb.addImage({ base64: await toB64(small), extension: "jpeg" }), r, c1, 8, 4, bmp.width, bmp.height);
+      } else {
+        cs.mergeCells(r + 3, c1, r + 3, c1 + 3);
+        const c = cs.getCell(r + 3, c1);
+        c.value = "（写真なし）";
+        c.font = { size: 9, color: { argb: "FF9AA5B1" } };
+        c.alignment = { horizontal: "center" };
+      }
+    }
+    r += 8;
+    put(r, 1, 12, "修繕管理（「修繕管理一覧」シートで入力すると反映）", { font: { bold: true, size: 10 }, fill: TINT });
+    H(1, 16);
+    r++;
+    [["対応状況", 1, 3], ["担当業者", 4, 6], ["対応予定日", 7, 9], ["完了日", 10, 12]].forEach(([l, a, b]) => put(r, a, b, l, { font: { bold: true, size: 10 }, fill: TINT, al: "center" }));
+    H(1, 17);
+    r++;
+    [["G", 1, 3, "未対応"], ["H", 4, 6, ""], ["I", 7, 9, ""], ["J", 10, 12, ""]].forEach(([col, a, b, res]) => {
+      const c = put(r, a, b, { formula: `IF(${ref(col)}="","",${ref(col)})`, result: res }, { font: { bold: true, size: 11 }, al: "center" });
+      if (col >= "I") c.numFmt = "yyyy/mm/dd";
+    });
+    cs.addConditionalFormatting({ ref: `A${r}:C${r}`, rules: stRules() });
+    H(1, 22);
+    r++;
+    put(r, 1, 2, "備考", { font: { bold: true, size: 10 }, fill: TINT, al: "center" });
+    put(r, 3, 12, { formula: `IF(${ref("K")}="","",${ref("K")})`, result: "" });
+    H(1, 22);
+    r++;
+    put(r, 1, 12, "出典：地理院タイル（国土地理院）。位置はGNSS測位によるもので誤差を含みます。", { font: { size: 8, color: { argb: "FF5B6875" } }, bd: false });
+    H(1, 12);
+    r++;
+    while (r < s + CARD_ROWS) {
+      H(1, 4);
+      r++;
+    }
+    if (i < ev.length - 1) cs.getRow(r - 1).addPageBreak();
+  }
+  cs.pageSetup.printArea = `A1:L${cardTop(ev.length) - 1}`;
   const buf = await wb.xlsx.writeBuffer();
   return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
