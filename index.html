@@ -4840,7 +4840,7 @@ function bc(step) {
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-28e";
+const APP_VER = "2026-10-29a";
 function deviceInfo() {
   const n = navigator;
   return [
@@ -4917,13 +4917,42 @@ $("cam").addEventListener("change", async () => {
     try {
       pendingEvent.blobs.push(await resizeImage(f, 1600, 0.82));
     } catch (e) {
+      bc("写真の読込失敗 " + (f.type || "?") + " " + f.size);
+      toast("写真を読み込めませんでした（形式：" + (f.type || "不明") + "）。カメラの設定で保存形式を「JPEG」にしてから撮り直してください", 8e3);
     }
   }
   askEventType();
 });
 $("cam").addEventListener("cancel", () => askEventType());
+async function decodeImage(file) {
+  try {
+    return await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch (e) {
+  }
+  try {
+    return await createImageBitmap(file);
+  } catch (e) {
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const im = new Image();
+    im.src = url;
+    await (im.decode ? im.decode() : new Promise((res, rej) => {
+      im.onload = res;
+      im.onerror = rej;
+    }));
+    if (!im.naturalWidth) throw new Error("decode");
+    const c = document.createElement("canvas");
+    c.width = im.naturalWidth;
+    c.height = im.naturalHeight;
+    c.getContext("2d").drawImage(im, 0, 0);
+    return c;
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1e3);
+  }
+}
 async function resizeImage(file, max, q) {
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const bmp = await decodeImage(file);
   const s = Math.min(1, max / Math.max(bmp.width, bmp.height));
   const c = document.createElement("canvas");
   c.width = Math.round(bmp.width * s);
@@ -5317,7 +5346,7 @@ async function showReport(key) {
     <dt>走行距離<br><small>実走行・路線外を含む</small></dt><dd>${(d.dist / 1e3).toFixed(2)} km</dd>
     <dt>当日巡回延長<br><small>路線データ上の延長</small></dt><dd>${tb.nDay} 路線・${Math.round(tb.dayDone)} m</dd>
     <dt>累計巡回率</dt><dd>${tb.cumPct.toFixed(0)} %（全${tb.nRoutes}路線）</dd>
-    <dt>異常</dt><dd>${d.events.length} 件</dd><dt>担当</dt><dd>${escapeHtml(d.name || "—")}</dd></dl>
+    <dt>異常</dt><dd>${d.events.length} 件${d.events.length ? `（写真 ${d.events.reduce((n, e) => n + evPhotos(e).length, 0)} 枚）` : ""}</dd><dt>担当</dt><dd>${escapeHtml(d.name || "—")}</dd></dl>
     <p style="margin:12px 0 4px">当日に巡回した路線（${tb.rows.length ? "一部でも走った路線のみ" : "なし"}）</p>
     ${tb.rows.length ? `<div style="overflow-x:auto"><table class="cov"><tr><th>路線</th><th>区分</th><th>延長m</th><th>当日m</th><th>累計</th></tr>
     ${tb.rows.map((r) => `<tr><td>${escapeHtml(r.route)}</td><td>${r.dir || "上下共通"}</td><td>${Math.round(r.len)}</td><td>${Math.round(r.day)}</td><td><span class="pill" style="background:${r.cumPct >= 90 ? "var(--ok)" : "var(--mid)"}">${r.cumPct.toFixed(0)}%</span></td></tr>`).join("")}</table></div>` : ""}
@@ -6037,15 +6066,23 @@ async function buildCardXlsx(d) {
     const ph = evPhotos(e);
     for (let j = 0; j < 3; j++) {
       const c1 = 1 + j * 4, b = j < ph.length ? await DB.get("photos", ph[j]).catch(() => null) : null;
+      let ok = false;
       if (b) {
-        const small = await resizeImage(b, 800, 0.8), bmp = await createImageBitmap(small);
-        placeImg(wb.addImage({ base64: await toB64(small), extension: "jpeg" }), r, c1, 8, 4, bmp.width, bmp.height);
-      } else {
+        try {
+          const small = await resizeImage(b, 800, 0.8), bmp = await decodeImage(small);
+          placeImg(wb.addImage({ base64: await toB64(small), extension: "jpeg" }), r, c1, 8, 4, bmp.width, bmp.height);
+          ok = true;
+        } catch (err) {
+          bc("カード写真失敗 " + ph[j] + " " + (b.type || "?") + " " + (b.size || 0));
+        }
+      }
+      if (!ok) {
+        const msg = j >= ph.length ? "（写真なし）" : !b ? "（写真データが見つかりません）" : "（写真を読み込めませんでした）";
         cs.mergeCells(r + 3, c1, r + 3, c1 + 3);
         const c = cs.getCell(r + 3, c1);
-        c.value = "（写真なし）";
-        c.font = { size: 9, color: { argb: "FF9AA5B1" } };
-        c.alignment = { horizontal: "center" };
+        c.value = msg;
+        c.font = { size: 9, color: { argb: j >= ph.length ? "FF9AA5B1" : "FFB3261E" } };
+        c.alignment = { horizontal: "center", wrapText: true };
       }
     }
     r += 8;
