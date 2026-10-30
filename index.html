@@ -4840,7 +4840,7 @@ function bc(step) {
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-29a";
+const APP_VER = "2026-10-30b";
 function deviceInfo() {
   const n = navigator;
   return [
@@ -5351,64 +5351,96 @@ async function showReport(key) {
     ${tb.rows.length ? `<div style="overflow-x:auto"><table class="cov"><tr><th>路線</th><th>区分</th><th>延長m</th><th>当日m</th><th>累計</th></tr>
     ${tb.rows.map((r) => `<tr><td>${escapeHtml(r.route)}</td><td>${r.dir || "上下共通"}</td><td>${Math.round(r.len)}</td><td>${Math.round(r.day)}</td><td><span class="pill" style="background:${r.cumPct >= 90 ? "var(--ok)" : "var(--mid)"}">${r.cumPct.toFixed(0)}%</span></td></tr>`).join("")}</table></div>` : ""}
     <button class="btn" id="xXlsx" style="background:var(--navy);color:#fff;border-color:var(--navy);min-height:64px;font-size:21px">日報（Excel）を保存</button>
-    ${d.events.length ? `<div class="hint" style="margin-top:-4px">異常が ${d.events.length} 件あるため、「異常箇所カード（Excel）」も一緒に保存されます。</div>` : ""}
-    <button class="btn" id="xShare" hidden>日報を送る（メール・LINE等）</button>
-    <button class="btn" id="xGeo">GIS用データを保存（GeoJSON）</button>
-    <button class="btn" id="xGpx">軌跡を保存（GPX）</button>
-    <button class="btn" id="xAll">まとめて保存（Excel・GeoJSON・GPX）</button>
-    <div class="hint">保存先：タブレットの「内部ストレージ ＞ Download」。パソコンにUSB-Cでつなぐと、パソコンから取り出せます（ファイル名は「道路パト_」で始まります）。</div>
+    <div class="hint" style="margin-top:-4px">日報（Excel）${d.events.length ? "・異常箇所カード（Excel）" : ""}・GIS用データ（GeoJSON）・軌跡（GPX）の${d.events.length ? "4" : "3"}つをまとめて保存します。</div>
+    <div class="hint">保存先：タブレットの「内部ストレージ ＞ Download」。パソコンにUSB-Cでつなぐと、パソコンから取り出せます（ファイル名は「道路パト_」で始まります）。同じ日に2回以上保存すると、名前の後ろに (1) などが付きます。</div>
     <div class="row"><button class="big ghost" id="xClose">閉じる</button></div>`, (root) => {
     root.querySelector("#xClose").onclick = closeSheet;
-    const cardName = `道路パト_異常箇所カード_${key}.xlsx`, hasEv = d.events.length > 0;
-    const saveXlsx = async () => {
-      toast(hasEv ? "日報と異常箇所カードを作成しています…" : "日報を作成しています…", 15e3);
-      const b = await buildXlsx(d, tb);
-      download(b, `道路パト_日報_${key}.xlsx`);
-      if (hasEv) {
-        const c = await buildCardXlsx(d);
-        await new Promise((r) => setTimeout(r, 800));
-        download(c, cardName);
-      }
-    };
     root.querySelector("#xXlsx").onclick = async () => {
+      if (tapGuard()) return;
+      const btn = root.querySelector("#xXlsx");
+      if (btn.disabled) return;
+      btn.disabled = true;
       try {
-        await saveXlsx();
-        toast(hasEv ? "日報と異常箇所カード（2ファイル）を保存しました（内部ストレージ ＞ Download）。「複数ファイルのダウンロード」を聞かれたら「許可」を押してください" : "日報を保存しました（内部ストレージ ＞ Download）", 6e3);
+        const files = await saveAllFiles(d, tb, key);
+        askSend(files);
       } catch (e) {
         toast("保存できませんでした：" + e.message, 6e3);
+      } finally {
+        btn.disabled = false;
       }
     };
-    if (navigator.canShare && navigator.canShare({ files: [new File([""], "a.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })] })) {
-      const sb = root.querySelector("#xShare");
-      sb.hidden = false;
-      sb.onclick = async () => {
-        const b = await buildXlsx(d, tb);
-        const fs = [new File([b], `道路パト_日報_${key}.xlsx`, { type: b.type })];
-        if (hasEv) {
-          const c = await buildCardXlsx(d);
-          fs.push(new File([c], cardName, { type: c.type }));
-        }
-        try {
-          await navigator.share({ files: fs, title: "巡回日報" });
-        } catch (e) {
-        }
-      };
+  });
+}
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+async function saveAllFiles(d, tb, key) {
+  const hasEv = d.events.length > 0;
+  toast(`${hasEv ? 4 : 3}つのファイルを作成しています…`, 2e4);
+  const out = [];
+  const b = await buildXlsx(d, tb);
+  out.push(new File([b], `道路パト_日報_${key}.xlsx`, { type: XLSX_MIME }));
+  if (hasEv) {
+    const c = await buildCardXlsx(d);
+    out.push(new File([c], `道路パト_異常箇所カード_${key}.xlsx`, { type: XLSX_MIME }));
+  }
+  out.push(new File([JSON.stringify(buildGeoJSON(d, tb.dc))], `道路パト_巡回結果_${key}.geojson`, { type: "application/geo+json" }));
+  out.push(new File([buildGpx(d)], `道路パト_軌跡_${key}.gpx`, { type: "application/gpx+xml" }));
+  for (let i = 0; i < out.length; i++) {
+    if (i) await new Promise((r) => setTimeout(r, 700));
+    download(out[i], out[i].name);
+  }
+  toast(`${out.length}つのファイルを Download フォルダに保存しました。「複数ファイルのダウンロード」を聞かれたら「許可」を押してください`, 6e3);
+  return out;
+}
+function shareable(files) {
+  if (!navigator.canShare) return null;
+  const asTxt = (f) => new File([f], f.name + ".txt", { type: "text/plain" });
+  const ok = (f) => {
+    try {
+      return navigator.canShare({ files: [f] });
+    } catch (e) {
+      return false;
     }
-    root.querySelector("#xGeo").onclick = () => {
-      download(new Blob([JSON.stringify(buildGeoJSON(d, tb.dc))], { type: "application/geo+json" }), `道路パト_巡回結果_${key}.geojson`);
-    };
-    root.querySelector("#xGpx").onclick = () => {
-      download(new Blob([buildGpx(d)], { type: "application/gpx+xml" }), `道路パト_軌跡_${key}.gpx`);
-    };
-    root.querySelector("#xAll").onclick = async () => {
+  };
+  const list = [];
+  let renamed = false, dropped = [];
+  files.forEach((f) => {
+    if (ok(f)) list.push(f);
+    else if (/\.(geojson|gpx)$/.test(f.name) && ok(asTxt(f))) {
+      list.push(asTxt(f));
+      renamed = true;
+    } else dropped.push(f.name);
+  });
+  if (!list.length) return null;
+  try {
+    if (!navigator.canShare({ files: list })) return null;
+  } catch (e) {
+    return null;
+  }
+  return { list, renamed, dropped };
+}
+function askSend(files) {
+  const sh = shareable(files);
+  if (!sh) {
+    sheet(`<h2>保存しました</h2><p>この端末では、アプリから直接送ることができません。Download フォルダのファイルを、LINE やメールのアプリから添付して送ってください。</p><div class="row"><button class="big go" id="sOk">閉じる</button></div>`, (r) => {
+      r.querySelector("#sOk").onclick = closeSheet;
+    });
+    return;
+  }
+  sheet(`<h2>日報を送りますか？</h2>
+    <p>${sh.list.length}つのファイルを、LINE・メールなど端末のアプリで送れます。「はい」を押すと送り先のアプリを選ぶ画面が開きます。</p>
+    <ul style="margin:4px 0 10px;padding-left:20px;font-size:15px;color:var(--muted)">${sh.list.map((f) => `<li>${escapeHtml(f.name)}</li>`).join("")}</ul>
+    ${sh.renamed ? `<div class="hint">GeoJSON・GPX は、この端末の都合で名前の最後に「.txt」を付けて送ります。受け取った側で「.txt」を消すと GIS で開けます。</div>` : ""}
+    ${sh.dropped.length ? `<div class="hint">送れないファイル：${sh.dropped.map(escapeHtml).join("、")}（Download フォルダにはあります）</div>` : ""}
+    <div class="row"><button class="big ghost" id="sNo">いいえ</button><button class="big go" id="sYes">はい</button></div>`, (r) => {
+    r.querySelector("#sNo").onclick = closeSheet;
+    r.querySelector("#sYes").onclick = async () => {
       try {
-        await saveXlsx();
+        await navigator.share({ files: sh.list, title: "巡回日報" });
+        closeSheet();
       } catch (e) {
-        toast("Excelを作成できませんでした：" + e.message, 6e3);
+        if (e && e.name === "AbortError") return;
+        toast("送れませんでした（" + (e && e.name || "不明") + "）。Download フォルダのファイルをアプリから添付して送ってください", 8e3);
       }
-      setTimeout(() => download(new Blob([JSON.stringify(buildGeoJSON(d, tb.dc))], { type: "application/geo+json" }), `道路パト_巡回結果_${key}.geojson`), 800);
-      setTimeout(() => download(new Blob([buildGpx(d)], { type: "application/gpx+xml" }), `道路パト_軌跡_${key}.gpx`), 1600);
-      setTimeout(() => toast((hasEv ? "4つ" : "3つ") + "のファイルを Download フォルダに保存しました。「複数ファイルのダウンロード」を聞かれたら「許可」を押してください", 6e3), 1800);
     };
   });
 }
@@ -5485,6 +5517,7 @@ function loadTile(z, x, y) {
   });
 }
 async function drawOverview(d, dc, W = 1200, H = 800, useTiles = true) {
+  const u = W / 1200;
   const cv = document.createElement("canvas");
   cv.width = W;
   cv.height = H;
@@ -5503,7 +5536,7 @@ async function drawOverview(d, dc, W = 1200, H = 800, useTiles = true) {
     if (p.visited) p.pts.forEach(([x, y]) => ext(...dc.ll(x, y)));
   });
   if (!isFinite(la0)) dc.pieces.forEach((p) => p.pts.forEach(([x, y]) => ext(...dc.ll(x, y))));
-  const top = 56, bot = 44, mapH = H - top - bot, padPx = 60;
+  const top = 56 * u, bot = 44 * u, mapH = H - top - bot, padPx = 60 * u;
   let z = 18;
   while (z > 5 && (wx(lo1, z) - wx(lo0, z) > W - 2 * padPx || wy(la0, z) - wy(la1, z) > mapH - 2 * padPx)) z--;
   let k = Math.min((W - 2 * padPx) / Math.max(1, wx(lo1, z) - wx(lo0, z)), (mapH - 2 * padPx) / Math.max(1, wy(la0, z) - wy(la1, z)), 2);
@@ -5541,11 +5574,11 @@ async function drawOverview(d, dc, W = 1200, H = 800, useTiles = true) {
     });
     g.stroke();
   };
-  dc.pieces.forEach((p) => line(p, "#ffffff", 11));
-  dc.pieces.forEach((p, i) => line(p, p.visited ? OV.day : cov.pieces[i] && cov.pieces[i].visited ? OV.past : OV.todo, 7));
+  dc.pieces.forEach((p) => line(p, "#ffffff", 11 * u));
+  dc.pieces.forEach((p, i) => line(p, p.visited ? OV.day : cov.pieces[i] && cov.pieces[i].visited ? OV.past : OV.todo, 7 * u));
   const labeled = /* @__PURE__ */ new Set();
-  g.font = "bold 20px sans-serif";
-  g.lineWidth = 4;
+  g.font = `bold ${20 * u}px sans-serif`;
+  g.lineWidth = 4 * u;
   g.strokeStyle = "#ffffff";
   dc.pieces.forEach((p) => {
     const key = p.route + p.dir;
@@ -5554,66 +5587,70 @@ async function drawOverview(d, dc, W = 1200, H = 800, useTiles = true) {
     const mid = p.pts[Math.floor(p.pts.length / 2)];
     const [X, Y] = P(...dc.ll(...mid));
     const t = p.route + (p.directional ? "(" + p.dir + ")" : "");
-    g.strokeText(t, X + 8, Y - 8);
+    g.strokeText(t, X + 8 * u, Y - 8 * u);
     g.fillStyle = OV.ink;
-    g.fillText(t, X + 8, Y - 8);
+    g.fillText(t, X + 8 * u, Y - 8 * u);
   });
   d.events.forEach((e) => {
     const [X, Y] = P(e.lat, e.lon);
     g.fillStyle = OV.ev;
     g.beginPath();
-    g.arc(X, Y, 14, 0, 7);
+    g.arc(X, Y, 14 * u, 0, 7);
     g.fill();
     g.strokeStyle = "#fff";
-    g.lineWidth = 3;
+    g.lineWidth = 3 * u;
     g.stroke();
     g.fillStyle = "#fff";
-    g.font = "bold 16px sans-serif";
+    g.font = `bold ${16 * u}px sans-serif`;
     g.textAlign = "center";
-    g.fillText(e.no, X, Y + 6);
+    g.fillText(e.no, X, Y + 6 * u);
     g.textAlign = "left";
   });
   g.restore();
   g.strokeStyle = "#c9d1d9";
-  g.lineWidth = 1;
+  g.lineWidth = 1 * u;
   g.strokeRect(0.5, top + 0.5, W - 1, mapH - 1);
-  g.font = "bold 22px sans-serif";
+  g.font = `bold ${22 * u}px sans-serif`;
   g.fillStyle = OV.ink;
-  g.fillText("巡回状況図  " + keyLabel(d.key), 16, 36);
-  g.font = "17px sans-serif";
+  g.fillText("巡回状況図  " + keyLabel(d.key), 16 * u, 36 * u);
+  g.font = `${17 * u}px sans-serif`;
   {
-    const items = [[OV.day, "当日巡回"], [OV.past, "巡回済（前日まで）"], [OV.todo, "未巡回"]];
-    let x = W - 16 - items.reduce((s, [, l]) => s + 34 + g.measureText(l).width + 22, 0);
-    items.forEach(([col, lab]) => {
+    const items = [[OV.day, "当日巡回"], [OV.past, "巡回済（前日まで）"], [OV.todo, "未巡回"], [OV.ev, "異常箇所（番号）"]];
+    let x = W - 16 * u - items.reduce((s, [, l]) => s + 34 * u + g.measureText(l).width + 22 * u, 0);
+    items.forEach(([col, lab], i) => {
       g.fillStyle = col;
-      g.fillRect(x, 26, 28, 7);
+      if (i === 3) {
+        g.beginPath();
+        g.arc(x + 14 * u, 30 * u, 8 * u, 0, 7);
+        g.fill();
+      } else g.fillRect(x, 26 * u, 28 * u, 7 * u);
       g.fillStyle = OV.ink;
-      g.fillText(lab, x + 34, 35);
-      x += 34 + g.measureText(lab).width + 22;
+      g.fillText(lab, x + 34 * u, 35 * u);
+      x += 34 * u + g.measureText(lab).width + 22 * u;
     });
   }
   const mpp = 156543.03392 * Math.cos((la0 + la1) / 2 * D2R) / 2 ** z / k;
-  const sb = [10, 20, 50, 100, 200, 500, 1e3, 2e3, 5e3].find((v) => v / mpp > 120) || 5e3;
+  const sb = [10, 20, 50, 100, 200, 500, 1e3, 2e3, 5e3].find((v) => v / mpp > 120 * u) || 5e3;
   g.fillStyle = OV.ink;
   g.strokeStyle = OV.ink;
-  g.lineWidth = 3;
+  g.lineWidth = 3 * u;
   g.beginPath();
-  g.moveTo(16, H - 16);
-  g.lineTo(16 + sb / mpp, H - 16);
+  g.moveTo(16 * u, H - 16 * u);
+  g.lineTo(16 * u + sb / mpp, H - 16 * u);
   g.stroke();
-  g.font = "16px sans-serif";
-  g.fillText(sb >= 1e3 ? sb / 1e3 + " km" : sb + " m", 24 + sb / mpp, H - 10);
+  g.font = `${16 * u}px sans-serif`;
+  g.fillText(sb >= 1e3 ? sb / 1e3 + " km" : sb + " m", 24 * u + sb / mpp, H - 10 * u);
   g.beginPath();
-  g.moveTo(W / 2, H - 38);
-  g.lineTo(W / 2 - 8, H - 14);
-  g.lineTo(W / 2 + 8, H - 14);
+  g.moveTo(W / 2, H - 38 * u);
+  g.lineTo(W / 2 - 8 * u, H - 14 * u);
+  g.lineTo(W / 2 + 8 * u, H - 14 * u);
   g.closePath();
   g.fill();
-  g.fillText("N", W / 2 + 12, H - 18);
-  g.font = "14px sans-serif";
+  g.fillText("N", W / 2 + 12 * u, H - 18 * u);
+  g.font = `${14 * u}px sans-serif`;
   g.textAlign = "right";
   g.fillStyle = "#5b6875";
-  g.fillText(bg ? "背景：地理院タイル（淡色地図）国土地理院" : "背景地図なし（通信できませんでした）", W - 16, H - 12);
+  g.fillText(bg ? "背景：地理院タイル（淡色地図）国土地理院" : "背景地図なし（通信できませんでした）", W - 16 * u, H - 12 * u);
   g.textAlign = "left";
   if (bg) {
     try {
@@ -5750,8 +5787,17 @@ async function buildXlsx(d, tb) {
     cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
     cell.border = box;
   };
-  const ws = wb.addWorksheet("日報", { pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
-  ws.columns = [{ width: 28 }, { width: 12 }, { width: 12 }, { width: 12 }, { width: 28 }, { width: 12 }, { width: 10 }];
+  const ws = wb.addWorksheet("日報", { pageSetup: {
+    paperSize: 9,
+    orientation: "portrait",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 1,
+    horizontalCentered: true,
+    margins: { left: 0.45, right: 0.45, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 }
+  } });
+  const DW = [22, 10, 10, 10, 22, 10, 9];
+  ws.columns = DW.map((w) => ({ width: w }));
   ws.mergeCells("A1:G1");
   ws.getCell("A1").value = "道路パトロール日報";
   ws.getCell("A1").font = { bold: true, size: 18 };
@@ -5780,7 +5826,7 @@ async function buildXlsx(d, tb) {
     head(k);
     for (let c = col + 1; c <= col + 2 + i % 2; c++) ws.getCell(r, c).border = box;
     v.alignment = { vertical: "middle" };
-    ws.getRow(r).height = /\n/.test(kv[0]) || /\n/.test(info[i ^ 1] ? info[i ^ 1][0] : "") ? 40 : 22;
+    ws.getRow(r).height = /\n/.test(kv[0]) || /\n/.test(info[i ^ 1] ? info[i ^ 1][0] : "") ? 50 : 22;
   });
   let r0 = 3 + Math.ceil(info.length / 2) + 1;
   ws.getCell(r0, 1).value = "当日に巡回した路線（一部でも走行した路線のみ）";
@@ -5807,14 +5853,28 @@ async function buildXlsx(d, tb) {
     });
     ws.getCell(r, 7).font = { bold: true, color: { argb: x.cumPct >= 90 ? "FF1D7A3A" : "FFB07800" } };
   });
+  for (let r = r0; r <= r0 + Math.max(1, tb.rows.length); r++) if (!ws.getRow(r).height) ws.getRow(r).height = r === r0 ? 30 : 18;
+  ws.getRow(2).height = 10;
+  ws.getRow(r0 - 1).height = 22;
   let r1 = r0 + Math.max(1, tb.rows.length) + 2;
+  ws.getRow(r1 - 1).height = 10;
   ws.getCell(r1, 1).value = "巡回状況図";
   ws.getCell(r1, 1).font = { bold: true, size: 13 };
-  const ov = await drawOverview(d, tb.dc);
+  ws.getRow(r1).height = 20;
+  let used = 0;
+  for (let r = 1; r <= r1; r++) used += ws.getRow(r).height || 15;
+  const MW = DW.reduce((s, w) => s + Math.trunc((256 * w + Math.trunc(128 / 7)) / 256 * 7), 0);
+  const MH = Math.round(Math.min(MW * 0.95, Math.max(340, (770 - used - 24) * 96 / 72)));
+  const ov = await drawOverview(d, tb.dc, Math.round(MW * 2.4), Math.round(MH * 2.4));
   const ovB = await new Promise((r) => ov.toBlob(r, "image/png"));
-  ws.addImage(wb.addImage({ base64: await toB64(ovB), extension: "png" }), { tl: { col: 0, row: r1 }, ext: { width: 640, height: 427 } });
-  ws.getCell(r1 + 24, 1).value = "※背景は国土地理院の地理院タイル（淡色地図）を使用。位置はGNSS測位によるもので誤差を含みます。走行軌跡はGPXファイルで別途保存できます。";
-  ws.getCell(r1 + 24, 1).font = { size: 9, color: { argb: "FF5B6875" } };
+  const mapRows = Math.ceil(MH / 20);
+  for (let i = 1; i <= mapRows; i++) ws.getRow(r1 + i).height = 15;
+  ws.addImage(wb.addImage({ base64: await toB64(ovB), extension: "png" }), { tl: { nativeCol: 0, nativeColOff: 0, nativeRow: r1, nativeRowOff: 0 }, ext: { width: MW, height: MH }, editAs: "oneCell" });
+  const rn = r1 + mapRows + 1;
+  ws.mergeCells(rn, 1, rn, 7);
+  ws.getCell(rn, 1).value = "※背景は国土地理院の地理院タイル（淡色地図）。位置はGNSS測位によるもので誤差を含みます。走行軌跡はGPXファイルで別途保存できます。";
+  ws.getCell(rn, 1).font = { size: 8, color: { argb: "FF5B6875" } };
+  ws.pageSetup.printArea = `A1:G${rn}`;
   await addAllRoutesSheet(wb, head, box);
   wb.eachSheet((w) => {
     w.properties.dyDescent = 0.25;
