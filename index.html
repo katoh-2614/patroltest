@@ -4840,7 +4840,7 @@ function bc(step) {
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-30b";
+const APP_VER = "2026-10-30d";
 function deviceInfo() {
   const n = navigator;
   return [
@@ -5361,8 +5361,7 @@ async function showReport(key) {
       if (btn.disabled) return;
       btn.disabled = true;
       try {
-        const files = await saveAllFiles(d, tb, key);
-        askSend(files);
+        await saveAllFiles(d, tb, key);
       } catch (e) {
         toast("保存できませんでした：" + e.message, 6e3);
       } finally {
@@ -5388,61 +5387,8 @@ async function saveAllFiles(d, tb, key) {
     if (i) await new Promise((r) => setTimeout(r, 700));
     download(out[i], out[i].name);
   }
-  toast(`${out.length}つのファイルを Download フォルダに保存しました。「複数ファイルのダウンロード」を聞かれたら「許可」を押してください`, 6e3);
+  toast("保存しました", 4e3);
   return out;
-}
-function shareable(files) {
-  if (!navigator.canShare) return null;
-  const asTxt = (f) => new File([f], f.name + ".txt", { type: "text/plain" });
-  const ok = (f) => {
-    try {
-      return navigator.canShare({ files: [f] });
-    } catch (e) {
-      return false;
-    }
-  };
-  const list = [];
-  let renamed = false, dropped = [];
-  files.forEach((f) => {
-    if (ok(f)) list.push(f);
-    else if (/\.(geojson|gpx)$/.test(f.name) && ok(asTxt(f))) {
-      list.push(asTxt(f));
-      renamed = true;
-    } else dropped.push(f.name);
-  });
-  if (!list.length) return null;
-  try {
-    if (!navigator.canShare({ files: list })) return null;
-  } catch (e) {
-    return null;
-  }
-  return { list, renamed, dropped };
-}
-function askSend(files) {
-  const sh = shareable(files);
-  if (!sh) {
-    sheet(`<h2>保存しました</h2><p>この端末では、アプリから直接送ることができません。Download フォルダのファイルを、LINE やメールのアプリから添付して送ってください。</p><div class="row"><button class="big go" id="sOk">閉じる</button></div>`, (r) => {
-      r.querySelector("#sOk").onclick = closeSheet;
-    });
-    return;
-  }
-  sheet(`<h2>日報を送りますか？</h2>
-    <p>${sh.list.length}つのファイルを、LINE・メールなど端末のアプリで送れます。「はい」を押すと送り先のアプリを選ぶ画面が開きます。</p>
-    <ul style="margin:4px 0 10px;padding-left:20px;font-size:15px;color:var(--muted)">${sh.list.map((f) => `<li>${escapeHtml(f.name)}</li>`).join("")}</ul>
-    ${sh.renamed ? `<div class="hint">GeoJSON・GPX は、この端末の都合で名前の最後に「.txt」を付けて送ります。受け取った側で「.txt」を消すと GIS で開けます。</div>` : ""}
-    ${sh.dropped.length ? `<div class="hint">送れないファイル：${sh.dropped.map(escapeHtml).join("、")}（Download フォルダにはあります）</div>` : ""}
-    <div class="row"><button class="big ghost" id="sNo">いいえ</button><button class="big go" id="sYes">はい</button></div>`, (r) => {
-    r.querySelector("#sNo").onclick = closeSheet;
-    r.querySelector("#sYes").onclick = async () => {
-      try {
-        await navigator.share({ files: sh.list, title: "巡回日報" });
-        closeSheet();
-      } catch (e) {
-        if (e && e.name === "AbortError") return;
-        toast("送れませんでした（" + (e && e.name || "不明") + "）。Download フォルダのファイルをアプリから添付して送ってください", 8e3);
-      }
-    };
-  });
 }
 function download(blob, name) {
   const a = document.createElement("a");
