@@ -721,6 +721,7 @@ header{background:var(--navy);color:#fff;display:flex;align-items:center;gap:10p
 @keyframes blink{50%{opacity:.55}}
 @media (prefers-reduced-motion:reduce){#rec.on{animation:none}}
 footer{background:var(--panel);border-top:1px solid var(--line);padding:12px max(12px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));display:flex;gap:12px}
+.rtLabel span{position:absolute;transform:translate(-50%,-50%);white-space:nowrap;font:800 17px/1 var(--font),sans-serif;color:#14202b;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff,0 0 4px #fff;pointer-events:none}
 .big{flex:1;min-height:76px;border:0;border-radius:16px;font-size:26px;font-weight:800;color:#fff;font-family:var(--font);letter-spacing:.04em;display:flex;align-items:center;justify-content:center;gap:10px}
 .big:active{transform:scale(.98)}
 .go{background:var(--go)}.stop{background:var(--stop)}.warn{background:var(--warn)}.navy{background:var(--navy)}
@@ -4347,14 +4348,72 @@ const posMarker = L.marker([0, 0], { icon: L.divIcon({ className: "posIcon", htm
 let posIsArrow = false;
 const accCircle = L.circle([0, 0], { radius: 1, color: "#1565c0", weight: 1, fillOpacity: 0.12 });
 let follow = true;
+const LABEL_EVERY = 400, LABEL_MINZOOM = 15, labelLayer = L.layerGroup();
+function buildLabels() {
+  labelLayer.clearLayers();
+  const tot = /* @__PURE__ */ new Map();
+  cov.pieces.forEach((p) => {
+    const k = p.route + "|" + p.dir;
+    tot.set(k, (tot.get(k) || 0) + p.len);
+  });
+  const acc = /* @__PURE__ */ new Map(), placed = [];
+  cov.pieces.forEach((p) => {
+    const key = p.route + "|" + p.dir;
+    let a = acc.get(key);
+    if (!a) {
+      const T = tot.get(key), down = p.directional && p.dir === "下り";
+      a = { s: 0, next: T < LABEL_EVERY ? T * 0.3 : LABEL_EVERY * 0.25, text: p.route + (p.directional ? "(" + p.dir + ")" : "") };
+      acc.set(key, a);
+    }
+    a.s += p.len;
+    if (a.s >= a.next) {
+      const mid = p.pts[Math.floor(p.pts.length / 2)];
+      if (placed.some(([x, y]) => Math.hypot(x - mid[0], y - mid[1]) < 45)) {
+        a.next += 30;
+        return;
+      }
+      placed.push(mid);
+      a.n = (a.n || 0) + 1;
+      L.marker(cov.ll(...mid), { icon: L.divIcon({ className: "rtLabel", html: "<span>" + escapeHtml(a.text) + "</span>", iconSize: [0, 0] }), interactive: false, keyboard: false }).addTo(labelLayer);
+      a.next += LABEL_EVERY;
+    }
+    a.ps = a.ps || [];
+    a.ps.push(p);
+  });
+  acc.forEach((a) => {
+    if (a.n || !a.ps) return;
+    let best = null, bd = -1;
+    a.ps.forEach((p) => {
+      const m = p.pts[Math.floor(p.pts.length / 2)];
+      const dd = placed.length ? Math.min(...placed.map(([x, y]) => Math.hypot(x - m[0], y - m[1]))) : 1e9;
+      if (dd > bd) {
+        bd = dd;
+        best = m;
+      }
+    });
+    if (best) {
+      placed.push(best);
+      L.marker(cov.ll(...best), { icon: L.divIcon({ className: "rtLabel", html: "<span>" + escapeHtml(a.text) + "</span>", iconSize: [0, 0] }), interactive: false, keyboard: false }).addTo(labelLayer);
+    }
+  });
+  showLabels();
+}
+function showLabels() {
+  const on = map.getZoom() >= LABEL_MINZOOM;
+  if (on && !map.hasLayer(labelLayer)) labelLayer.addTo(map);
+  else if (!on && map.hasLayer(labelLayer)) map.removeLayer(labelLayer);
+}
+map.on("zoomend", showLabels);
 function buildCoverage() {
   cov = new Coverage(routesGJ, S.pieceLen);
   pieceLayer.clearLayers();
   pieceLines = cov.pieces.map((p) => L.polyline(p.pts.map(([x, y]) => cov.ll(x, y)), { color: css("--todo"), weight: 7, opacity: 0.85 }).addTo(pieceLayer));
+  buildLabels();
   paintPieces();
   rebuildCumulative();
 }
-let clearedAt = 0;
+let clearedAt = 0, clears = [];
+const cycleOf = (ms) => 1 + clears.filter((c) => c <= ms).length;
 const isExt = (src) => src === "usb" || src === "drogger";
 const bufFor = (t) => isExt(t.source) ? S.bufferUsb : S.buffer;
 async function rebuildCumulative() {
@@ -4840,7 +4899,7 @@ function bc(step) {
   } catch (e) {
   }
 }
-const APP_VER = "2026-10-30d";
+const APP_VER = "2026-10-31a";
 function deviceInfo() {
   const n = navigator;
   return [
@@ -4882,7 +4941,7 @@ async function stopTrip() {
   }
   if (S.source === "demo") Demo.stop();
   setUI();
-  showReport(dayKey(trip.start));
+  showReport(repKey(trip.start));
 }
 async function saveTrip() {
   if (trip) try {
@@ -5153,15 +5212,23 @@ function dayKey(ms) {
   const d = new Date(ms);
   return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
 }
-const keyLabel = (k) => k.replace(/-/g, "/");
+const repKey = (ms) => dayKey(ms) + "#" + cycleOf(ms);
+const keyDate = (k) => k.split("#")[0], keyCyc = (k) => +(k.split("#")[1] || 0);
+const keyLabel = (k) => keyDate(k).replace(/-/g, "/") + (keyCyc(k) ? "（" + keyCyc(k) + "巡目）" : "");
+const keyFile = (k) => keyDate(k) + (keyCyc(k) ? "_" + keyCyc(k) + "巡目" : "");
 async function loadDays() {
   const m = /* @__PURE__ */ new Map();
   (await DB.all("trips").catch(() => [])).sort((a, b) => a.start - b.start).forEach((t) => {
-    const k = dayKey(t.start);
+    const k = repKey(t.start);
     if (!m.has(k)) m.set(k, []);
     m.get(k).push(t.id === (trip && trip.id) ? trip : t);
   });
   return m;
+}
+async function cycleCoverage(key) {
+  const cyc = keyCyc(key), date = keyDate(key), c = new Coverage(routesGJ, S.pieceLen);
+  (await DB.all("trips").catch(() => [])).filter((t) => (!cyc || cycleOf(t.start) === cyc) && dayKey(t.start) <= date).sort((a, b) => a.start - b.start).forEach((t) => c.add(t.id === (trip && trip.id) ? trip.points : t.points, bufFor(t)));
+  return c;
 }
 function mergeDay(key, trips) {
   const points = [], events = [];
@@ -5189,7 +5256,7 @@ function mergeDay(key, trips) {
 function dayTable(day) {
   const dc = new Coverage(routesGJ, S.pieceLen);
   day.trips.forEach((t) => dc.add(t.id === (trip && trip.id) ? trip.points : t.points, bufFor(t)));
-  const ds = dc.summary(), cs = cov.summary();
+  const cc = day.cc || cov, ds = dc.summary(), cs = cc.summary();
   const cm = new Map(cs.rows.map((r) => [r.route + "|" + r.dir, r]));
   const rows = ds.rows.filter((r) => r.done > 0).map((r) => {
     const c = cm.get(r.route + "|" + r.dir) || { done: 0, len: r.len };
@@ -5208,7 +5275,7 @@ $("menuBtn").onclick = async () => {
   }).join("") : `<p>まだありません</p>`}
     </div>
     <div class="sec"><b>巡回済（青）の表示</b>
-      <p>${clearedAt ? fmtDate(clearedAt) + " " + fmtTime(clearedAt).slice(0, 5) + " から" : "最初の記録から"}の巡回を重ねて表示しています。全路線を回り終えたらクリアしてください。日付ごとの記録は消えません。</p>
+      <p>現在 <b>${cycleOf(Date.now())}巡目</b>：${clearedAt ? fmtDate(clearedAt) + " " + fmtTime(clearedAt).slice(0, 5) + " から" : "最初の記録から"}の巡回を重ねて表示しています。全路線を回り終えたらクリアしてください。日付ごとの記録は消えません。</p>
       <button class="btn" id="cClear" style="color:var(--stop)">巡回済（青）をクリアする</button></div>
     <div class="sec"><b>設定</b>
       <label class="f" for="sName">担当者名</label><input type="text" id="sName" value="${escapeHtml(S.name)}">
@@ -5242,9 +5309,11 @@ $("menuBtn").onclick = async () => {
     root.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => deleteDay(b.dataset.del));
     root.querySelector("#cClear").onclick = () => confirmSheet("巡回済（青）をクリアしますか？", "地図の青い表示がすべて赤（未巡回）に戻り、ここから新しく数え直します。日付ごとの記録と日報は残ります。", "クリアする", async () => {
       clearedAt = Date.now();
+      clears.push(clearedAt);
+      await DB.put("kv", clears, "clears");
       await DB.put("kv", clearedAt, "clearedAt");
       await rebuildCumulative();
-      toast("巡回済をクリアしました");
+      toast("巡回済をクリアしました。ここから " + cycleOf(Date.now()) + "巡目 です", 4e3);
     });
     root.querySelector("#sSave").onclick = () => {
       const busy = trip && !trip.end;
@@ -5295,7 +5364,7 @@ async function deleteDay(key) {
       await DB.del("trips", t.id).catch(() => {
       });
     }
-    if (trip && dayKey(trip.start) === key) {
+    if (trip && repKey(trip.start) === key) {
       trip = null;
       setTrack([]);
       evLayer.clearLayers();
@@ -5340,7 +5409,9 @@ async function showReport(key) {
     toast("記録がありません");
     return;
   }
-  const d = mergeDay(key, ts), tb = dayTable(d);
+  const d = mergeDay(key, ts);
+  d.cc = await cycleCoverage(key);
+  const tb = dayTable(d);
   sheet(`<h2>巡回日報 ${keyLabel(key)}</h2>
     <dl class="kv"><dt>時間</dt><dd>${fmtTime(d.start).slice(0, 5)} 〜 ${d.end ? fmtTime(d.end).slice(0, 5) : "記録中"}（${ts.length}回・計${fmtDur(d.drive)}）</dd>
     <dt>走行距離<br><small>実走行・路線外を含む</small></dt><dd>${(d.dist / 1e3).toFixed(2)} km</dd>
@@ -5376,13 +5447,13 @@ async function saveAllFiles(d, tb, key) {
   toast(`${hasEv ? 4 : 3}つのファイルを作成しています…`, 2e4);
   const out = [];
   const b = await buildXlsx(d, tb);
-  out.push(new File([b], `道路パト_日報_${key}.xlsx`, { type: XLSX_MIME }));
+  out.push(new File([b], `道路パト_日報_${keyFile(key)}.xlsx`, { type: XLSX_MIME }));
   if (hasEv) {
     const c = await buildCardXlsx(d);
-    out.push(new File([c], `道路パト_異常箇所カード_${key}.xlsx`, { type: XLSX_MIME }));
+    out.push(new File([c], `道路パト_異常箇所カード_${keyFile(key)}.xlsx`, { type: XLSX_MIME }));
   }
-  out.push(new File([JSON.stringify(buildGeoJSON(d, tb.dc))], `道路パト_巡回結果_${key}.geojson`, { type: "application/geo+json" }));
-  out.push(new File([buildGpx(d)], `道路パト_軌跡_${key}.gpx`, { type: "application/gpx+xml" }));
+  out.push(new File([JSON.stringify(buildGeoJSON(d, tb.dc))], `道路パト_巡回結果_${keyFile(key)}.geojson`, { type: "application/geo+json" }));
+  out.push(new File([buildGpx(d)], `道路パト_軌跡_${keyFile(key)}.gpx`, { type: "application/gpx+xml" }));
   for (let i = 0; i < out.length; i++) {
     if (i) await new Promise((r) => setTimeout(r, 700));
     download(out[i], out[i].name);
@@ -5414,12 +5485,12 @@ function buildGeoJSON(d, c) {
   });
   if (cur.length > 1) segs.push(cur);
   F.push({ type: "Feature", properties: { layer: "走行軌跡", date: keyLabel(d.key), dist_m: Math.round(d.dist) }, geometry: { type: "MultiLineString", coordinates: segs } });
-  c.pieces.forEach((p, i) => F.push({ type: "Feature", properties: { layer: "巡回区間", route: p.route, dir: p.dir, len_m: +p.len.toFixed(1), visited_day: p.visited ? 1 : 0, visited_total: cov.pieces[i] && cov.pieces[i].visited ? 1 : 0 }, geometry: { type: "LineString", coordinates: p.pts.map(([x, y]) => {
+  c.pieces.forEach((p, i) => F.push({ type: "Feature", properties: { layer: "巡回区間", route: p.route, dir: p.dir, len_m: +p.len.toFixed(1), visited_day: p.visited ? 1 : 0, visited_total: (d.cc || cov).pieces[i] && (d.cc || cov).pieces[i].visited ? 1 : 0 }, geometry: { type: "LineString", coordinates: p.pts.map(([x, y]) => {
     const [la, lo] = c.ll(x, y);
     return [+lo.toFixed(8), +la.toFixed(8)];
   }) } }));
   d.events.forEach((e) => F.push({ type: "Feature", properties: { layer: "異常箇所", no: e.no, type: e.type, time: fmtDate(e.t) + " " + fmtTime(e.t), route: e.route, memo: e.memo, acc_m: +e.acc.toFixed(1), photo: evPhotos(e).map((k) => k + ".jpg").join(","), photos: evPhotos(e).length }, geometry: { type: "Point", coordinates: [e.lon, e.lat] } }));
-  return { type: "FeatureCollection", name: "巡回結果_" + d.key, features: F };
+  return { type: "FeatureCollection", name: "巡回結果_" + keyFile(d.key), features: F };
 }
 function buildGpx(d) {
   const iso = (ms) => new Date(ms).toISOString();
@@ -5521,7 +5592,7 @@ async function drawOverview(d, dc, W = 1200, H = 800, useTiles = true) {
     g.stroke();
   };
   dc.pieces.forEach((p) => line(p, "#ffffff", 11 * u));
-  dc.pieces.forEach((p, i) => line(p, p.visited ? OV.day : cov.pieces[i] && cov.pieces[i].visited ? OV.past : OV.todo, 7 * u));
+  dc.pieces.forEach((p, i) => line(p, p.visited ? OV.day : (d.cc || cov).pieces[i] && (d.cc || cov).pieces[i].visited ? OV.past : OV.todo, 7 * u));
   const labeled = /* @__PURE__ */ new Set();
   g.font = `bold ${20 * u}px sans-serif`;
   g.lineWidth = 4 * u;
@@ -5627,8 +5698,9 @@ const toB64 = (blob) => new Promise((r) => {
   fr.onload = () => r(fr.result.split(",")[1]);
   fr.readAsDataURL(blob);
 });
-async function lastVisitDates() {
-  const trips = (await DB.all("trips").catch(() => [])).filter((t) => t.start >= clearedAt).sort((a, b) => a.start - b.start);
+async function lastVisitDates(d) {
+  const cyc = keyCyc(d.key), date = keyDate(d.key);
+  const trips = (await DB.all("trips").catch(() => [])).filter((t) => (!cyc || cycleOf(t.start) === cyc) && dayKey(t.start) <= date).sort((a, b) => a.start - b.start);
   const last = {};
   for (const t of trips) {
     const c = new Coverage(routesGJ, S.pieceLen);
@@ -5639,13 +5711,16 @@ async function lastVisitDates() {
   }
   return last;
 }
-async function addAllRoutesSheet(wb, head, box) {
+async function addAllRoutesSheet(wb, head, box, d) {
   const ws = wb.addWorksheet("全路線の巡回状況", { views: [{ state: "frozen", ySplit: 7 }], pageSetup: { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 } });
-  const sm = cov.summary(), last = await lastVisitDates(), rows = sm.rows, n = rows.length, r0 = 8, r1 = r0 + Math.max(n, 1) - 1;
+  const sm = (d.cc || cov).summary(), last = await lastVisitDates(d), rows = sm.rows, n = rows.length, r0 = 8, r1 = r0 + Math.max(n, 1) - 1;
   ws.columns = [{ width: 5 }, { width: 10 }, { width: 10 }, { width: 10 }, { width: 11 }, { width: 9 }, { width: 34 }, { width: 9 }, { width: 9 }, { width: 13 }];
   ws.getCell("A1").value = "全路線の巡回状況（累計）";
   ws.getCell("A1").font = { bold: true, size: 16 };
-  ws.getCell("A2").value = "集計：" + fmtDate(Date.now()) + " " + fmtTime(Date.now()).slice(0, 5) + " 時点　／　累計の開始：" + (clearedAt ? fmtDate(clearedAt) + "（巡回済をクリアした日）" : "最初の記録から");
+  {
+    const cyc = keyCyc(d.key), st = cyc > 1 ? clears[cyc - 2] : 0;
+    ws.getCell("A2").value = (cyc ? cyc + "巡目　" : "") + keyLabel(d.key).replace(/（.*）/, "") + " 終了時点の累計　／　この巡目の開始：" + (st ? fmtDate(st) + " " + fmtTime(st).slice(0, 5) + "（巡回済をクリアした日時）" : "最初の記録から");
+  }
   ws.getCell("A2").font = { size: 9, color: { argb: "FF5B6875" } };
   const done = rows.filter((r) => r.len && r.done / r.len >= 0.9999).length, part = rows.filter((r) => r.done > 0 && r.done / r.len < 0.9999).length, none = rows.filter((r) => !(r.done > 0)).length;
   const sumHead = ["区分の数", "完了", "一部", "未巡回", "全体巡回率"];
@@ -5821,7 +5896,7 @@ async function buildXlsx(d, tb) {
   ws.getCell(rn, 1).value = "※背景は国土地理院の地理院タイル（淡色地図）。位置はGNSS測位によるもので誤差を含みます。走行軌跡はGPXファイルで別途保存できます。";
   ws.getCell(rn, 1).font = { size: 8, color: { argb: "FF5B6875" } };
   ws.pageSetup.printArea = `A1:G${rn}`;
-  await addAllRoutesSheet(wb, head, box);
+  await addAllRoutesSheet(wb, head, box, d);
   wb.eachSheet((w) => {
     w.properties.dyDescent = 0.25;
     if (!w.views || !w.views.length) w.views = [{ state: "normal", zoomScale: 100, zoomScaleNormal: 100 }];
@@ -6160,6 +6235,7 @@ if ("serviceWorker" in navigator) {
     }
   }
   clearedAt = await DB.get("kv", "clearedAt").catch(() => 0) || 0;
+  clears = await DB.get("kv", "clears").catch(() => null) || (clearedAt ? [clearedAt] : []);
   const trips = await DB.all("trips").catch(() => []);
   let open = trips.find((x) => !x.end);
   const crashed = crashCheck();
